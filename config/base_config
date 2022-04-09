@@ -1,0 +1,42 @@
+# BASIC SETTINGS
+dataset_path: "dataset/rgbd-scenes-v2/imgs/"
+label_path: "dataset/rgbd-scenes-v2/pc/"
+pretrained_path: "pretrained_models/"
+pretrained_model: "vivit_model.pth"
+n_segments: 8
+f_per_segment: 2
+frame_template: "{:05d}-color.png"
+label_template: "{:02d}.pose"
+n_video: 14
+dataset_name: training_dataset
+data_init: False
+data_mean: [0.3124, 0.2982, 0.2637]
+data_std: [0.2250, 0.2303, 0.2492]
+
+# DATA SETTINGS
+n_frames: 16
+width: 224
+height: 224
+patch_t: 2
+patch_w: 16
+patch_h: 16
+channels: 3
+
+# NN PARAMETERS
+dim: 768
+n_heads: 12
+mlp_dim: 255
+n_trfs: 4
+dim_out: 768
+
+# TRAINING SETTINGS
+pretrain: True
+batch_size: 2
+n_epochs: 25
+epoch_start: 0
+l_rate: 0.01
+gamma: 0.8
+save: True
+log_interval: 2
+
+
