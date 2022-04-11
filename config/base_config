@@ -32,11 +32,12 @@ dim_out: 768
 # TRAINING SETTINGS
 pretrain: True
 batch_size: 2
-n_epochs: 25
-epoch_start: 0
-l_rate: 0.01
-gamma: 0.8
+n_epochs: 50
+l_rate: 0.1
+gamma: 0.9
 save: True
+summary: True
+loss_plot: True
 log_interval: 2
 
 

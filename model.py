@@ -22,7 +22,8 @@ class PoseTransformerFirst(nn.Module):
 
         self.transformer = modules.Transformer(dim, heads, mlp_dim, depth_l, dropout)
         self.mlp_head = modules.MLPhead(dim * n_w * n_h, dim_out)
-        self.pose = modules.PoseLinear(dim_out)
+        self.pos = modules.PosLinear(dim_out)
+        self.ori = modules.OriLinear(dim_out)
         self.initialize_weights()
 
     def forward(self, x):
@@ -30,8 +31,9 @@ class PoseTransformerFirst(nn.Module):
         x += self.pos_embedding
         x = self.transformer(x)
         x = self.mlp_head(x)
-        x = self.pose(x)
-        return x
+        pos = self.pos(x)
+        ori = self.ori(x)
+        return pos, ori
 
     def initialize_weights(self):
         mod = self.modules()
@@ -49,7 +51,7 @@ class PoseTransformer(nn.Module):
     ]
 
     def __init__(self, num_frames, height, width, patch_time, patch_height, patch_width, channels, dim_out,
-                 embed_dims=768, num_heads=12, num_transformer_layers=12, dropout_p=0, norm_layer=nn.LayerNorm, **kwargs):
+                 embed_dims=768, num_heads=12, num_transformer_layers=12, dropout_p=0.2, norm_layer=nn.LayerNorm, **kwargs):
         super(PoseTransformer, self).__init__()
         num_frames = num_frames // patch_time
         self.num_frames = num_frames
@@ -102,7 +104,8 @@ class PoseTransformer(nn.Module):
         self.drop_after_pos = nn.Dropout(p=dropout_p)
         self.drop_after_time = nn.Dropout(p=dropout_p)
 
-        self.pose = modules.PoseLinear(dim_out)
+        self.pos = modules.PosLinear(dim_out)
+        self.ori = modules.OriLinear(dim_out)
 
         self.init_weights()
 
@@ -139,6 +142,7 @@ class PoseTransformer(nn.Module):
 
         x = self.norm(x)
         x = x[:, 1:]
-        x = self.pose(x)
-        return x
+        pos = self.pos(x)
+        ori = self.ori(x)
+        return pos, ori
 

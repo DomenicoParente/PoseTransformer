@@ -1,15 +1,18 @@
 import os
+import numpy as np
 import torch
 import torch.optim as optim
-import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from collections import OrderedDict
 import model
-from dataloader import RGBDDataset
+from dataloader import RGBDDataset, RGBDDatasetv2
 import datetime
 from datetime import datetime
+from modules import PoseLoss
+from matplotlib import pyplot as plt
 
 
 class Solver:
@@ -21,23 +24,30 @@ class Solver:
         else:
             print('GPU not available')
 
+        # Setting model, loss function
         self.config = config
         self.model = model.PoseTransformer(self.config["n_frames"], self.config["height"], self.config["width"],
                                            self.config["patch_t"], self.config["patch_h"], self.config["patch_w"],
                                            self.config["channels"], self.config["dim_out"])
 
+        self.criterion = PoseLoss(self.device)
+
         # Create name for the current trained model
         now = datetime.now()
         self.model_name = "PT_model" + now.strftime("%d-%m-%H_%M")
+        self.summary_name = "PT_model_summary" + now.strftime("%d-%m-%H_%M")
+        self.loss_plot_name = "PT_model_loss_plot" + now.strftime("%d-%m-%H_%M")
 
         # Load pretrained model
         if self.config["pretrain"]:
             self.load_pretrained_model()
 
-        self.model_save_path = 'trained_models/'
+        self.models_save_path = 'trained_models/'
 
     def load_pretrained_model(self):
+        """ Load the pretrained model of ViViT"""
         model_path = self.config["pretrained_path"] + self.config["pretrained_model"]
+        print("Setup pretrained model")
         if torch.cuda.is_available():
             pretrained_model = torch.load(model_path)
         else:
@@ -60,7 +70,7 @@ class Solver:
         print('Load pretrained network: ', model_path)
 
     def load_dataset(self, dataset_name):
-        # Create the dataset and save files for training and testing.
+        """Load the dataset and save files for training and testing"""
         if not (os.path.isfile(dataset_name)):
             print('Setup dataset')
 
@@ -89,15 +99,31 @@ class Solver:
         # Scheduler
         scheduler = StepLR(optimizer, step_size=self.config["n_epochs"], gamma=self.config["gamma"])
 
-        # Creates a directory for the model when it does not exist
-        if not os.path.exists(self.model_save_path):
-            os.makedirs(self.model_save_path)
+        # Creates a directory for the trained models when it does not exist
+        if not os.path.exists(self.models_save_path) and self.config["save"]:
+            os.makedirs(self.models_save_path)
 
-        tot_loss = 0
+        # Create a directory for the current trained model
+        trained_model_path = self.models_save_path + self.model_name + "/"
+        os.makedirs(trained_model_path)
+
+        # Write summary
+        if self.config["summary"]:
+            summary_filepath = trained_model_path + self.summary_name
+            summary_file = open(summary_filepath, 'w')
+            summary_file.write("Summary " + self.model_name + "\n")
+            summary_file.write("\n Input size: " + "[" +
+                               str(self.config["channels"]) + " " + str(self.config["n_frames"]) + " " +
+                               str(self.config["height"]) + " " + str(self.config["width"]) + "]\n")
+
+        total_loss_training = []
+        pos_loss_training = []
+        ori_loss_training = []
 
         # Train NN for N epochs
-        for epoch in range(self.config["epoch_start"], self.config["n_epochs"]):
+        for epoch in range(0, self.config["n_epochs"]):
             train_model.train()
+            tot_loss = 0
             for batch_idx, (data, target) in enumerate(train_data):
                 data = data.to(self.device)
                 target = target.to(self.device)
@@ -108,27 +134,63 @@ class Solver:
                 optimizer.zero_grad()
 
                 # Passing data to model
-                output = train_model(data)
-                # print('Size output: ', output.size())
-                # print('Output:', output)
-                loss = nn.L1Loss()(output, target)
+                pos_out, ori_out = train_model(data)
+                # print('Size output: ', pos_out.size(), ori_out.size())
+                # print('Output:', pos_out, ori_out)
+
+                ori_true = target[:, :, :4]
+                pos_true = target[:, :, 4:]
+
+                ori_out = F.normalize(ori_out, p=2, dim=1)
+                ori_true = F.normalize(ori_true, p=2, dim=1)
+
+                loss, _, _ = self.criterion(pos_out, ori_out, pos_true, ori_true)
+                loss_t = self.criterion.loss_print[0]
+                loss_pos = self.criterion.loss_print[1]
+                loss_ori = self.criterion.loss_print[2]
                 loss.backward()
                 optimizer.step()
 
                 tot_loss += loss.item()
                 if batch_idx % self.config["log_interval"] == 0:
                     print('Training Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                        epoch, batch_idx * len(data), len(train_data.dataset),
+                        epoch + 1, batch_idx * len(data), len(train_data.dataset),
                                100. * batch_idx / len(train_data), tot_loss / (batch_idx + 1)))
 
-            print('Number of epochs: ', epoch)
-            print('Training Loss: {:.6f}'.format(tot_loss / len(train_data)))
+            total_loss_training.append(tot_loss/(len(train_data)))
+            pos_loss_training.append(loss_pos)
+            ori_loss_training.append(loss_ori)
+            print('Number of epochs: ', epoch + 1)
+            print('Training Total Loss: {:.6f} \t Training Position Loss: {:.6f} \t Training Orientation Loss: {:.6f}'.format(
+                    tot_loss/(len(train_data)), loss_pos, loss_ori))
+
+            if self.config["summary"]:
+                n_ep = epoch + 1
+                summary_file.write("Epoch: " + str(n_ep) + "\n")
+                summary_file.write("Loss: " + str(loss_t) + "\n")
+                summary_file.write("Position Loss: " + str(loss_pos) + "\n")
+                summary_file.write("Orientation Loss: " + str(loss_pos) + "\n" + "\n")
 
             scheduler.step()
 
+        print("Overall average position error {:.6f}".format(np.mean(pos_loss_training)))
+        print("Overall average orientation error {:.6f}".format(np.mean(ori_loss_training)))
+
+        if self.config["summary"]:
+            summary_file.write("Overall average position error: " + str(np.mean(pos_loss_training)) + "\n")
+            summary_file.write("Overall average orientation error: " + str(np.mean(ori_loss_training)) + "\n")
+
+        if self.config["loss_plot"]:
+            plot_path = trained_model_path + self.loss_plot_name
+            fig, ax = plt.subplots(figsize=(10, 10))
+            ax.plot(range(self.config["n_epochs"]), total_loss_training, c='red')
+            plt.ylabel('Loss Training')
+            plt.xlabel('Number of Epochs')
+            plt.savefig(plot_path)
+
         # It saves the trained model
         if self.config["save"]:
-            torch.save(train_model.state_dict(), os.path.join(self.model_save_path, self.model_name))
+            torch.save(train_model.state_dict(), os.path.join(trained_model_path, self.model_name))
 
     def test(self, test_data):
         eval_model = self.model.to(self.device)
@@ -141,8 +203,16 @@ class Solver:
         with torch.no_grad():
             for data, target in test_data:
                 data, target = data.to(self.device), target.to(self.device)
-                output = eval_model(data)
-                tot_loss += torch.nn.CrossEntropyLoss()(output, target).item()  # sum up batch loss
+                pos_out, ori_out = eval_model(data)
+                # print('Size output: ', pos_out.size(), ori_out.size())
+                # print('Output:', pos_out, ori_out)
+                ori_true = target[:, :, :4]
+                pos_true = target[:, :, 4:]
+
+                ori_out = F.normalize(ori_out, p=2, dim=1)
+                ori_true = F.normalize(ori_true, p=2, dim=1)
+                loss, _, _ = self.criterion(pos_out, ori_out, pos_true, ori_true)
+                tot_loss += loss.item()  # sum up batch loss
 
         testing_loss.append(tot_loss / (len(test_data)))
         testing_accuracy.append(correct / (len(test_data) * self.config["batch_size"]))
