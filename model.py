@@ -5,6 +5,7 @@ from einops import rearrange, repeat, reduce
 
 
 class PoseTransformerFirst(nn.Module):
+    """First implementation currently NOT used"""
     def __init__(self, n_frames, height, width, patch_time, patch_height, patch_width, channels, dim, heads,
                  mlp_dim, depth_l, dim_out, dropout=0.1):
         super(PoseTransformerFirst, self).__init__()
@@ -46,6 +47,7 @@ class PoseTransformerFirst(nn.Module):
 
 
 class PoseTransformer(nn.Module):
+    """Reference: https://github.com/mx-mark/VideoTransformer-pytorch"""
     supported_attention_types = [
         'fact_encoder', 'joint_space_time', 'divided_space_time'
     ]

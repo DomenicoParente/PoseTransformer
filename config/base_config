@@ -1,8 +1,7 @@
 # BASIC SETTINGS
+mode: "test"
 dataset_path: "dataset/rgbd-scenes-v2/imgs/"
 label_path: "dataset/rgbd-scenes-v2/pc/"
-pretrained_path: "pretrained_models/"
-pretrained_model: "vivit_model.pth"
 n_segments: 8
 f_per_segment: 2
 frame_template: "{:05d}-color.png"
@@ -31,13 +30,20 @@ dim_out: 768
 
 # TRAINING SETTINGS
 pretrain: True
+pretrained_path: "pretrained_models/"
+pretrained_model: "vivit_model.pth"
 batch_size: 2
-n_epochs: 50
-l_rate: 0.1
-gamma: 0.9
+n_epochs: 100
+l_rate: 0.01
+gamma: 0.95
 save: True
 summary: True
 loss_plot: True
 log_interval: 2
 
+# TESTING SETTINGS
+trained: True
+trained_path: "trained_models/"
+trained_model: "PT_model11-04-00_32"
+test_dataset_name: "test_dataset"
 

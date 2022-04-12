@@ -49,10 +49,19 @@ def main():
     assert config["n_segments"] * config["f_per_segment"] == config["n_frames"] and \
            config["patch_t"] == config["f_per_segment"]
 
-    # Load datasets if present otherwise create it
-    data = solver.load_dataset(config["dataset_name"])
-    # Train the model
-    solver.train(data)
+    if config["mode"] == "train":
+        # Load datasets if present otherwise create it
+        data = solver.load_dataset(config["dataset_name"])
+        # Train the model
+        solver.train(data)
+    elif config["mode"] == "test":
+        # Load dataset for testing
+        data = solver.load_dataset_test(config["test_dataset_name"])
+        # Test the model
+        solver.test(data)
+    else:
+        print("ERROR. Mode not present")
+        return
 
 
 if __name__ == '__main__':
