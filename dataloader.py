@@ -102,8 +102,10 @@ class RGBDDataset(Dataset):
         return l_frames, labels
 
 
-class RGBDDatasetv2(Dataset):
-    """A variation from the first one: it takes gropus of 16 frames for each scene starting from a random position """
+class RGBDDataset_v2(Dataset):
+    """This dataloader takes n consecutive frames (n/t poses) each time until the frames in the current scene are finished.
+     Then it passes to the next scene. """
+
     def __init__(self, img_dir, label_dir, n_segment, frame_template, label_template, n_video, frames_per_segment=1,
                  transform=None):
 
@@ -113,8 +115,8 @@ class RGBDDatasetv2(Dataset):
         self.frame_template = frame_template
         self.label_template = label_template
         self.n_video = n_video
-        self.n_segment = n_segment
         self.frames_per_segment = frames_per_segment
+        self.n_frames = n_segment * frames_per_segment
 
         if transform is None:
             self.transform = transforms.Compose([
@@ -150,25 +152,48 @@ class RGBDDatasetv2(Dataset):
         return count + 1
 
     def __len__(self):
-        return self.n_video
+        count = 0
+        for i in range(self.n_video):
+            count += self.getN_frames(i) // self.n_frames
+        return count
 
     def __getitem__(self, idx):
         frames = list()
         labels = list()
         l_frames = []
-        n_frames = self.frames_per_segment * self.n_segment
+        video_index = self.n_video + 1
+        count_p = 0
+        count = 0
 
-        if self.getN_frames(idx) < n_frames:
+        for j in range(self.n_video):
+            count_p = count
+            count += (self.getN_frames(j) // self.n_frames)
+            #print("Count:", count)
+            #print("J:", j)
+            if idx < count:
+                video_index = j
+                break
+
+        #print("V:", video_index)
+        #print("N:", self.n_video)
+        if video_index > self.n_video:
+            print("Error Data-loader index.")
+            return
+
+        if self.getN_frames(video_index) < self.n_frames:
             print("ERROR. The number of frames in dataset is smaller than the number required.")
 
-        max_valid_start_index = self.getN_frames(idx) - n_frames
-        frame_idx = np.random.randint(0, max_valid_start_index)
-        for i in range(n_frames):
-            f = self.load_frame(idx, (frame_idx + i))
+        frame_idx = (idx - count_p) * self.n_frames
+        #print("IDX: ", idx)
+        #print("Video index:", video_index)
+        #print("Frame: ", frame_idx)
+        #print("Count: ", count_p)
+        for i in range(self.n_frames):
+            f = self.load_frame(video_index, (frame_idx + i))
             frames.append(f)
             # For each segment it takes the last label
-            if i % 2 == 0:
-                label = self.getLabel(idx, (frame_idx + i))
+            if i % self.frames_per_segment == 0:
+                label = self.getLabel(video_index, (frame_idx + i))
                 labels.append(label)
 
         if self.transform is not None:
@@ -180,12 +205,11 @@ class RGBDDatasetv2(Dataset):
         l_frames = torch.stack(l_frames)
         l_frames = torch.permute(l_frames, [1, 0, 2, 3])
         labels = np.array(labels)
-        # print(l_frames.size())
         return l_frames, labels
 
 
 class RGBDDataset_test(Dataset):
-    """Dato loader for testing: it takes all frames from 14 scene (16 frames per time) """
+    """Dato loader for testing: it takes all frames from 14 scene (n frames per time) """
     def __init__(self, img_dir, label_dir, n_segment, frame_template, label_template, n_video, frames_per_segment=1,
                  transform=None):
 
@@ -197,6 +221,7 @@ class RGBDDataset_test(Dataset):
         self.n_video = n_video
         self.index = 13
         self.n_frames = n_segment * frames_per_segment
+        self.frames_per_segment = frames_per_segment
 
         if transform is None:
             self.transform = transforms.Compose([
@@ -247,7 +272,7 @@ class RGBDDataset_test(Dataset):
             f = self.load_frame(self.index, (frame_idx + i))
             frames.append(f)
             # For each segment it takes the last label
-            if i % 2 == 0:
+            if i % self.frames_per_segment == 0:
                 label = self.getLabel(self.index, (frame_idx + i))
                 labels.append(label)
 
