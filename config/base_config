@@ -1,5 +1,5 @@
 # BASIC SETTINGS
-mode: "train"
+mode: "test"
 dataset_path: "dataset/rgbd-scenes-v2/imgs/"
 label_path: "dataset/rgbd-scenes-v2/pc/"
 n_segments: 8
@@ -44,7 +44,9 @@ log_interval: 8
 
 # TESTING SETTINGS
 trained: True
+cvs_file: True
+trajectory_plot: True
 trained_path: "trained_models/"
-trained_model: "PT_model14-04-08_29"
+trained_model: "PT_model11-04-23_52"
 test_dataset_name: "test_dataset"
 

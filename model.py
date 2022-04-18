@@ -7,8 +7,8 @@ from einops import rearrange, repeat, reduce
 class PoseTransformerFirst(nn.Module):
     """First implementation currently NOT used"""
     def __init__(self, n_frames, height, width, patch_time, patch_height, patch_width, channels, dim, heads,
-                 mlp_dim, depth_l, dim_out, dropout=0.1):
-        super(PoseTransformerFirst, self).__init__()
+                 mlp_dim, depth_l, dim_out, dropout=0.2):
+        super().__init__()
 
         # The number of video frames are considered the discrete time of the video
         time = n_frames
@@ -54,7 +54,7 @@ class PoseTransformer(nn.Module):
 
     def __init__(self, num_frames, height, width, patch_time, patch_height, patch_width, channels, dim_out,
                  embed_dims=768, num_heads=12, num_transformer_layers=12, dropout_p=0.2, norm_layer=nn.LayerNorm, **kwargs):
-        super(PoseTransformer, self).__init__()
+        super().__init__()
         num_frames = num_frames // patch_time
         self.num_frames = num_frames
         self.embed_dims = embed_dims

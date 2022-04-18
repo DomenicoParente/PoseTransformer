@@ -8,12 +8,13 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from collections import OrderedDict
 import model
-from dataloader import RGBDDataset, RGBDDatasetv2, RGBDDataset_test
+from dataloader import RGBDDataset, RGBDDataset_v2, RGBDDataset_test
 import datetime
 from datetime import datetime
 from modules import PoseLoss
-from matplotlib import pyplot as plt
 import utils
+from os.path import exists
+import csv
 
 
 class Solver:
@@ -27,18 +28,21 @@ class Solver:
 
         # Setting model, loss function
         self.config = config
+        """
+        self.model = model.PoseTransformer(self.config["n_frames"], self.config["height"], self.config["width"],
+                                           self.config["patch_t"], self.config["patch_h"], self.config["patch_w"],
+                                           self.config["channels"], self.config["dim"], self.config["n_heads"],
+                                           self.config["mlp_dim"], self.config["depth"], self.config["dim_out"])
+        """
+
         self.model = model.PoseTransformer(self.config["n_frames"], self.config["height"], self.config["width"],
                                            self.config["patch_t"], self.config["patch_h"], self.config["patch_w"],
                                            self.config["channels"], self.config["dim_out"])
-
         self.criterion = PoseLoss(self.device)
 
         # Create name for the current trained model
         now = datetime.now()
         self.model_name = "PT_model" + now.strftime("%d-%m-%H_%M")
-        self.summary_name = "PT_model_summary" + now.strftime("%d-%m-%H_%M")
-        self.loss_plot_name = "PT_model_loss_plot" + now.strftime("%d-%m-%H_%M")
-        self.trajectory_plot_name = "PT_model_trajectory_plot" + now.strftime("%d-%m-%H_%M")
 
         # Load pretrained model
         if self.config["pretrain"] and self.config["mode"] == "train":
@@ -96,9 +100,16 @@ class Solver:
                 transforms.Normalize(self.config["data_mean"], self.config["data_std"])
             ])
 
+            """
             dataset = RGBDDataset(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
-                                  self.config["frame_template"], self.config["label_template"], self.config["n_video"],
+                                  self.config["frame_template"], self.config["label_template"],
+                                  self.config["n_video"],
                                   self.config["f_per_segment"], transform)
+            """
+
+            dataset = RGBDDataset_v2(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
+                                     self.config["frame_template"], self.config["label_template"], self.config["n_video"],
+                                     self.config["f_per_segment"], transform)
             training_dataset = DataLoader(dataset, batch_size=self.config["batch_size"], shuffle=False)
 
             torch.save(training_dataset, dataset_name)
@@ -146,12 +157,13 @@ class Solver:
 
         # Write summary
         if self.config["summary"]:
-            summary_filepath = trained_model_path + self.summary_name
+            summary_filepath = trained_model_path + self.model_name + "_summary"
             summary_file = open(summary_filepath, 'w')
             summary_file.write("Summary " + self.model_name + "\n")
             summary_file.write("\n Input size: " + "[" +
                                str(self.config["channels"]) + " " + str(self.config["n_frames"]) + " " +
                                str(self.config["height"]) + " " + str(self.config["width"]) + "]\n")
+            summary_file.write("\n Number of epochs: " + str(self.config["n_epochs"]))
 
         total_loss_training = []
         pos_loss_training = []
@@ -218,12 +230,7 @@ class Solver:
             summary_file.write("Overall average orientation error: " + str(np.mean(ori_loss_training)) + "\n")
 
         if self.config["loss_plot"]:
-            plot_path = trained_model_path + self.loss_plot_name
-            fig, ax = plt.subplots(figsize=(10, 10))
-            ax.plot(range(self.config["n_epochs"]), total_loss_training, c='red')
-            plt.ylabel('Loss Training')
-            plt.xlabel('Number of Epochs')
-            plt.savefig(plot_path)
+            utils.loss_plot(trained_model_path, self.model_name, self.config["n_epochs"], total_loss_training)
 
         # It saves the trained model
         if self.config["save"]:
@@ -233,18 +240,10 @@ class Solver:
         print("Starting Test")
         eval_model = self.model.to(self.device)
         eval_model.eval()
-        target_pos = []
-        target_ori = []
-        estimated_pos = []
-        estimated_ori = []
+        target_pose = []
+        estimated_pose = []
         pos_loss_testing = []
         ori_loss_testing = []
-        t_x = []
-        t_y = []
-        t_z = []
-        e_x = []
-        e_y = []
-        e_z = []
         with torch.no_grad():
             for data, target in test_data:
                 data, target = data.to(self.device), target.to(self.device)
@@ -266,25 +265,39 @@ class Solver:
                 pos_loss_testing.append(loss_pos)
                 ori_loss_testing.append(loss_ori)
 
-                for i in range(ori_true.shape[0]):
-                    target_pos.append(pos_true[i])
-                    target_ori.append(ori_true[i])
-                    estimated_pos.append(pos_out[i])
-                    estimated_ori.append(ori_out[i])
-
-                for pos in target_pos:
-                    t_x.append(pos[0])
-                    t_y.append(pos[1])
-                    t_z.append(pos[2])
-
-                for pos in estimated_pos:
-                    e_x.append(pos[0])
-                    e_y.append(pos[1])
-                    e_z.append(pos[2])
+                for i in range(pos_true.shape[0]):
+                    target_pose.append(np.hstack((pos_true[i], ori_true[i])))
+                    estimated_pose.append(np.hstack((pos_out[i], ori_out[i])))
 
         print('Test Position Loss: {:.6f} \t Test Orientation Loss: {:.6f}'.format(
               np.mean(pos_loss_testing), np.mean(ori_loss_testing)))
 
-        # Plot trajectory of using estimated poses and correct poses
-        trajectory_plot_path = self.models_save_path + self.model_name + "/" + self.trajectory_plot_name
-        utils.trajectory_plot(trajectory_plot_path, t_x, t_y, t_z, e_x, e_y, e_z)
+        summary_filepath = self.models_save_path + self.config["trained_model"] + "/" + self.config["trained_model"] + "_summary"
+        if self.config["summary"] and exists(summary_filepath):
+            summary_file = open(summary_filepath, 'w')
+            summary_file.write("Overall test position error: " + str(np.mean(pos_loss_testing)) + "\n")
+            summary_file.write("Overall test orientation error: " + str(np.mean(ori_loss_testing)) + "\n")
+
+        if self.config["cvs_file"]:
+            path_target = self.models_save_path + self.config["trained_model"] + "/" + self.config["trained_model"] + '_pose_target.csv'
+            path_estim = self.models_save_path + self.config["trained_model"] + "/" + self.config["trained_model"] + '_pose_estimation.cvs'
+            f1 = open(path_target, 'w')
+            f2 = open(path_estim, 'w')
+            writer1 = csv.writer(f1)
+            writer2 = csv.writer(f2)
+            writer1.writerows(target_pose)
+            writer2.writerows(estimated_pose)
+
+        if self.config["trajectory_plot"]:
+            target_pose = np.array(target_pose)
+            estimated_pose = np.array(estimated_pose)
+            nptarget_path = self.models_save_path + self.config["trained_model"] + "/" + self.config[
+                "trained_model"] + '_tar.npy'
+            npestimated_path = self.models_save_path + self.config["trained_model"] + "/" + self.config[
+                "trained_model"] + '_est.npy'
+            np.save(nptarget_path, target_pose)
+            np.save(npestimated_path, estimated_pose)
+
+            # Plot trajectory of using estimated poses and correct poses
+            trajectory_plot_path = self.models_save_path + self.config["trained_model"] + "/" + self.config["trained_model"] + "_trajectory_plot"
+            utils.trajectory_plot(trajectory_plot_path, nptarget_path, npestimated_path)

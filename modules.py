@@ -61,10 +61,17 @@ class PosLinear(nn.Module):
     def __init__(self, dim: int, outdim=3):
         super(PosLinear, self).__init__()
         self.linear = nn.Linear(dim, outdim, bias=True)
+        self.initialize_weights()
 
     def forward(self, x):
         x = self.linear(x)
         return x
+
+    def initialize_weights(self):
+        nn.init.kaiming_uniform_(self.linear.weight.data)
+        if self.linear.bias is not None:
+            nn.init.constant_(self.linear.bias.data, 0)
+
 
 
 class OriLinear(nn.Module):
@@ -73,10 +80,16 @@ class OriLinear(nn.Module):
     def __init__(self, dim: int, outdim=4):
         super(OriLinear, self).__init__()
         self.linear = nn.Linear(dim, outdim, bias=True)
+        self.initialize_weights()
 
     def forward(self, x):
         x = self.linear(x)
         return x
+
+    def initialize_weights(self):
+        nn.init.kaiming_uniform_(self.linear.weight.data)
+        if self.linear.bias is not None:
+            nn.init.constant_(self.linear.bias.data, 0)
 
 
 class AttentionFirst(nn.Module):
@@ -110,11 +123,11 @@ class AttentionFirst(nn.Module):
         return out
 
 
-class TransformerFirst(nn.Module):
+class Transformer(nn.Module):
     """Transformer Encoder as described in paper "ViViT: A Video Vision Transformer" """
 
     def __init__(self, dim: int, heads: int, mlp_dim: int, depth_l: int, dropout=0.):
-        super(TransformerFirst, self).__init__()
+        super().__init__()
         self.layers = nn.ModuleList([])
         self.attention = AttentionFirst(dim, heads, dropout)
         self.norm = nn.LayerNorm(dim)
@@ -373,16 +386,10 @@ class BasicTransformerBlock(nn.Module):
 
 
 class PoseLoss(nn.Module):
-    def __init__(self, device, sx=0.0, sq=0.0, learn_beta=False):
+    def __init__(self, learn_beta=False):
         super(PoseLoss, self).__init__()
         self.learn_beta = learn_beta
 
-        if not self.learn_beta:
-            self.sx = 0
-            self.sq = -6.25
-
-        self.sx = nn.Parameter(torch.Tensor([sx]), requires_grad=self.learn_beta)
-        self.sq = nn.Parameter(torch.Tensor([sq]), requires_grad=self.learn_beta)
         self.loss_print = None
 
     def forward(self, pred_x, pred_q, target_x, target_q):
@@ -390,10 +397,7 @@ class PoseLoss(nn.Module):
         loss_x = F.l1_loss(pred_x, target_x)
         loss_q = F.l1_loss(pred_q, target_q)
 
-        loss = torch.exp(-self.sx) * loss_x \
-               + self.sx \
-               + torch.exp(-self.sq) * loss_q \
-               + self.sq
+        loss = loss_x + loss_q
 
         self.loss_print = [loss.item(), loss_x.item(), loss_q.item()]
 
