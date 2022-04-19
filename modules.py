@@ -390,9 +390,9 @@ class PoseLoss(nn.Module):
         super(PoseLoss, self).__init__()
         self.learn_beta = learn_beta
         if self.learn_beta:
-            self.beta = beta
-        else:
             self.beta = 1
+        else:
+            self.beta = beta
         self.sx = nn.Parameter(torch.Tensor([sx]), requires_grad=self.learn_beta)
         self.sq = nn.Parameter(torch.Tensor([sq]), requires_grad=self.learn_beta)
         self.sx = self.sx.to(device)
@@ -409,7 +409,6 @@ class PoseLoss(nn.Module):
                + self.sx \
                + torch.exp(-self.sq) * self.beta * loss_q  \
                + self.sq
-
         self.loss_print = [loss.item(), loss_x.item(), loss_q.item()]
 
         return loss, loss_x.item(), loss_q.item()
