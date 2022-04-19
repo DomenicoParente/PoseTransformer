@@ -38,7 +38,7 @@ class Solver:
         self.model = model.PoseTransformer(self.config["n_frames"], self.config["height"], self.config["width"],
                                            self.config["patch_t"], self.config["patch_h"], self.config["patch_w"],
                                            self.config["channels"], self.config["dim_out"])
-        self.criterion = PoseLoss(self.device)
+        self.criterion = PoseLoss(self.device, learn_beta=True)
 
         # Create name for the current trained model
         now = datetime.now()
@@ -107,7 +107,7 @@ class Solver:
                                   self.config["f_per_segment"], transform)
             """
 
-            dataset = RGBDDataset_v2(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
+            dataset = RGBDDataset(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
                                      self.config["frame_template"], self.config["label_template"], self.config["n_video"],
                                      self.config["f_per_segment"], transform)
             training_dataset = DataLoader(dataset, batch_size=self.config["batch_size"], shuffle=False)
@@ -164,6 +164,13 @@ class Solver:
                                str(self.config["channels"]) + " " + str(self.config["n_frames"]) + " " +
                                str(self.config["height"]) + " " + str(self.config["width"]) + "]\n")
             summary_file.write("\n Number of epochs: " + str(self.config["n_epochs"]))
+            summary_file.write("\n Initial learning rate: " + str(self.config["l_rate"]))
+            summary_file.write("\n Step size: " + str(self.config["step_size"]))
+            if self.config["pretrain"]:
+                summary_file.write("\n The model is pretrained\n")
+            else:
+                summary_file.write("\n The model is not pretrained\n")
+
 
         total_loss_training = []
         pos_loss_training = []
@@ -274,7 +281,7 @@ class Solver:
 
         summary_filepath = self.models_save_path + self.config["trained_model"] + "/" + self.config["trained_model"] + "_summary"
         if self.config["summary"] and exists(summary_filepath):
-            summary_file = open(summary_filepath, 'w')
+            summary_file = open(summary_filepath, 'a')
             summary_file.write("Overall test position error: " + str(np.mean(pos_loss_testing)) + "\n")
             summary_file.write("Overall test orientation error: " + str(np.mean(ori_loss_testing)) + "\n")
 

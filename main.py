@@ -2,7 +2,7 @@ import torch
 import yaml
 import os
 from torch.utils.data import DataLoader
-from dataloader import RGBDDataset
+from dataloader import RGBDDataset, RGBDDataset_v2
 from solver import Solver
 
 CONFIG_PATH = "config/"
@@ -17,7 +17,7 @@ def config_load(config_filename):
 
 def get_mean_and_std_dataset(config):
     channels_sum, channels_squared_sum, num_batches = 0, 0, 0
-    dataset = RGBDDataset(config["dataset_path"], config["label_path"], config["n_segments"],
+    dataset = RGBDDataset_v2(config["dataset_path"], config["label_path"], config["n_segments"],
                           config["frame_template"], config["label_template"], config["n_video"],
                           config["f_per_segment"])
     dataloader = DataLoader(dataset, batch_size=config["batch_size"], shuffle=False)
