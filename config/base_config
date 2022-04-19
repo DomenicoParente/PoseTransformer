@@ -35,8 +35,9 @@ pretrained_path: "pretrained_models/"
 pretrained_model: "vivit_model.pth"
 batch_size: 2
 n_epochs: 50
-l_rate: 0.005
-gamma: 0.95
+step_size: 5
+l_rate: 0.001
+gamma: 0.5
 save: True
 summary: True
 loss_plot: True

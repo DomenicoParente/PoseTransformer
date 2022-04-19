@@ -145,7 +145,7 @@ class Solver:
         # Optimizer
         optimizer = optim.SGD(train_model.parameters(), lr=self.config["l_rate"])
         # Scheduler
-        scheduler = StepLR(optimizer, step_size=self.config["n_epochs"], gamma=self.config["gamma"])
+        scheduler = StepLR(optimizer, step_size=self.config["step_size"], gamma=self.config["gamma"])
 
         # Creates a directory for the trained models when it does not exist
         if not os.path.exists(self.models_save_path) and self.config["save"]:
