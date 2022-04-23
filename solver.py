@@ -38,7 +38,7 @@ class Solver:
         self.model = model.PoseTransformer(self.config["n_frames"], self.config["height"], self.config["width"],
                                            self.config["patch_t"], self.config["patch_h"], self.config["patch_w"],
                                            self.config["channels"], self.config["dim_out"])
-        self.criterion = PoseLoss(self.device, learn_beta=True)
+        self.criterion = PoseLoss(self.device)
 
         # Create name for the current trained model
         now = datetime.now()
@@ -94,11 +94,23 @@ class Solver:
         if not (os.path.isfile(dataset_name)):
             print('Setup dataset')
 
-            transform = transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Resize((self.config["height"], self.config["width"])),
-                transforms.Normalize(self.config["data_mean"], self.config["data_std"])
-            ])
+            if self.config["data_augmentation"]:
+                transform = transforms.Compose([
+                    transforms.ToTensor(),
+                    transforms.ColorJitter(),
+                    transforms.RandomSolarize(100),
+                    transforms.RandomEqualize(),
+                    transforms.RandomAdjustSharpness(0.5),
+                    transforms.RandomErasing(),
+                    transforms.Resize((self.config["height"], self.config["width"])),
+                    transforms.Normalize(self.config["data_mean"], self.config["data_std"])
+                ])
+            else:
+                transform = transforms.Compose([
+                    transforms.ToTensor(),
+                    transforms.Resize((self.config["height"], self.config["width"])),
+                    transforms.Normalize(self.config["data_mean"], self.config["data_std"])
+                ])
 
             """
             dataset = RGBDDataset(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
@@ -107,7 +119,7 @@ class Solver:
                                   self.config["f_per_segment"], transform)
             """
 
-            dataset = RGBDDataset(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
+            dataset = RGBDDataset_v2(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
                                      self.config["frame_template"], self.config["label_template"], self.config["n_video"],
                                      self.config["f_per_segment"], transform)
             training_dataset = DataLoader(dataset, batch_size=self.config["batch_size"], shuffle=False)
@@ -166,10 +178,18 @@ class Solver:
             summary_file.write("\n Number of epochs: " + str(self.config["n_epochs"]))
             summary_file.write("\n Initial learning rate: " + str(self.config["l_rate"]))
             summary_file.write("\n Step size: " + str(self.config["step_size"]))
+            summary_file.write("\n Gamma: " + str(self.config["gamma"]))
             if self.config["pretrain"]:
                 summary_file.write("\n The model is pretrained\n")
             else:
                 summary_file.write("\n The model is not pretrained\n")
+            if self.config["data_augmentation"]:
+                summary_file.write("\n Data augmentation ON\n")
+            else:
+                summary_file.write("\n Data augmentation OFF\n")
+            summary_file.write("\n")
+            summary_file.write(repr(self.model))
+            summary_file.write("\n")
 
 
         total_loss_training = []
@@ -241,7 +261,9 @@ class Solver:
 
         # It saves the trained model
         if self.config["save"]:
-            torch.save(train_model.state_dict(), os.path.join(trained_model_path, self.model_name))
+            trained_model_path = trained_model_path + self.model_name + ".pth"
+            torch.save(train_model.state_dict(), trained_model_path)
+            print("Model successfully saved")
 
     def test(self, test_data):
         print("Starting Test")
