@@ -5,6 +5,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 import torch
 from torchvision import transforms
+import dataAugmentation
 
 
 # DataLoader for RGB-D Scenes Dataset v.2 by University of Washington
@@ -72,6 +73,7 @@ class RGBDDataset(Dataset):
         frames = list()
         labels = list()
         l_frames = []
+        temp = []
 
         if self.getN_frames(idx) < self.n_segment * self.frames_per_segment:
             print("ERROR. The number of frames in dataset is smaller than the number required.")
@@ -89,6 +91,12 @@ class RGBDDataset(Dataset):
 
                 if frame_idx < self.getN_frames(idx) - 1:
                     frame_idx += 1
+
+        if self.data_augmentation:
+            aug = dataAugmentation.ImageAugmentation()
+            for fr in frames:
+                fr = aug(fr)
+                temp.append(fr)
 
         if self.transform is not None:
             for fr in frames:
@@ -163,6 +171,7 @@ class RGBDDataset_v2(Dataset):
         frames = list()
         labels = list()
         l_frames = []
+        temp = []
         video_index = self.n_video + 1
         count_p = 0
         count = 0
@@ -190,8 +199,14 @@ class RGBDDataset_v2(Dataset):
                 label = self.getLabel(video_index, (frame_idx + i))
                 labels.append(label)
 
-        if self.transform is not None:
+        if self.data_augmentation:
+            aug = dataAugmentation.ImageAugmentation()
             for fr in frames:
+                fr = aug(fr)
+                temp.append(fr)
+
+        if self.transform is not None:
+            for fr in temp:
                 fr = self.transform(fr)
                 l_frames.append(fr)
 
