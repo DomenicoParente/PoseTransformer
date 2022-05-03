@@ -68,10 +68,9 @@ class PosLinear(nn.Module):
         return x
 
     def initialize_weights(self):
-        nn.init.kaiming_uniform_(self.linear.weight.data)
+        nn.init.kaiming_normal_(self.linear.weight.data)
         if self.linear.bias is not None:
             nn.init.constant_(self.linear.bias.data, 0)
-
 
 
 class OriLinear(nn.Module):
@@ -87,7 +86,7 @@ class OriLinear(nn.Module):
         return x
 
     def initialize_weights(self):
-        nn.init.kaiming_uniform_(self.linear.weight.data)
+        nn.init.kaiming_normal_(self.linear.weight.data)
         if self.linear.bias is not None:
             nn.init.constant_(self.linear.bias.data, 0)
 
@@ -196,28 +195,7 @@ class Attention(nn.Module):
         return x, attn
 
 
-class DropPath(nn.Module):
-
-    def __init__(self, dropout_p=None):
-        super(DropPath, self).__init__()
-        self.dropout_p = dropout_p
-
-    def forward(self, x):
-        return self.drop_path(x, self.dropout_p, self.training)
-
-    def drop_path(self, x, dropout_p=0., training=False):
-        if dropout_p == 0. or not training:
-            return x
-        keep_prob = 1 - dropout_p
-        shape = (x.shape[0],) + (1,) * (x.ndim - 1)
-        random_tensor = keep_prob + torch.rand(shape).type_as(x)
-        random_tensor.floor_()  # binarize
-        output = x.div(keep_prob) * random_tensor
-        return
-
-
 class PatchEmbed(nn.Module):
-
     def __init__(self, width, height, p_w, p_h, p_t, channels=3, embed_dims=768):
         super().__init__()
         self.width = width
@@ -231,10 +209,16 @@ class PatchEmbed(nn.Module):
             (self.height // self.patch_height)
         self.num_patches = num_patches
 
-        # Use convolutional layer to embed
+        # Use convolutional 3d layer to embed video tubelet
         self.projection = nn.Conv3d(channels, embed_dims,
                                     kernel_size=(self.patch_time, self.patch_height, self.patch_width),
                                     stride=(self.patch_time, self.patch_height, self.patch_width))
+        self.init_weights(self.projection)
+
+    def init_weights(self, module):
+        nn.init.kaiming_normal_(module.weight.data)
+        if module.bias is not None:
+            nn.init.constant_(module.bias.data, 0)
 
     def forward(self, x):
         x = self.projection(x)
@@ -244,20 +228,20 @@ class PatchEmbed(nn.Module):
 
 class MultiheadAttentionWithPreNorm(nn.Module):
 
-    def __init__(self, embed_dims, num_heads, attn_drop=0., proj_drop=0., dropout=0., norm_layer=nn.LayerNorm):
+    def __init__(self, embed_dims, num_heads, attn_drop=0., proj_drop=0., norm_layer=nn.LayerNorm):
         super(MultiheadAttentionWithPreNorm, self).__init__()
         self.embed_dims = embed_dims
         self.num_heads = num_heads
         self.norm = norm_layer(embed_dims)
         self.attn = Attention(embed_dims, num_heads, qkv_bias=True, attn_drop=attn_drop)
         self.proj_drop = nn.Dropout(proj_drop)
-        self.drop = DropPath(proj_drop)
+        self.id = nn.Identity()
 
     def forward(self, x):
         residual = x
         x = self.norm(x)
         attn_out, attn_weights = self.attn(x)
-        x = residual + self.drop(attn_out)
+        x = residual + self.id(attn_out)
 
         return x
 
@@ -276,7 +260,6 @@ class FFNWithPreNorm(nn.Module):
         self.embed_dims = embed_dims
         self.hidden_channels = hidden_channels
         self.num_layers = num_layers
-        self.drop = DropPath(dropout_p)
         self.norm = norm_layer(embed_dims)
         layers = []
         in_channels = embed_dims
@@ -290,8 +273,7 @@ class FFNWithPreNorm(nn.Module):
         layers.append(nn.Linear(hidden_channels, embed_dims))
         layers.append(nn.Dropout(dropout_p))
         self.layers = nn.ModuleList(layers)
-
-        self.layer_drop = DropPath(dropout_p)
+        self.id = nn.Identity()
 
     def forward(self, x):
         residual = x
@@ -300,7 +282,7 @@ class FFNWithPreNorm(nn.Module):
         for layer in self.layers:
             x = layer(x)
 
-        return residual + self.layer_drop(x)
+        return residual + self.id(x)
 
 
 class TransformerContainer(nn.Module):
@@ -332,8 +314,7 @@ class TransformerContainer(nn.Module):
                     operator_order=operator_order,
                     norm_layer=norm_layer,
                     act_layer=act_layer,
-                    num_layers=num_layers,
-                    dpr=dpr[i]))
+                    num_layers=num_layers))
 
     def forward(self, x):
         for layer in self.layers:
@@ -352,7 +333,6 @@ class BasicTransformerBlock(nn.Module):
                  norm_layer=nn.LayerNorm,
                  act_layer=nn.GELU,
                  num_layers=2,
-                 dpr=0,
                  ):
 
         super().__init__()
@@ -396,7 +376,6 @@ class PoseLoss(nn.Module):
 
         self.sx = nn.Parameter(torch.Tensor([sx]).to(device), requires_grad=self.learn_beta)
         self.sq = nn.Parameter(torch.Tensor([sq]).to(device), requires_grad=self.learn_beta)
-
 
         self.loss_print = None
 

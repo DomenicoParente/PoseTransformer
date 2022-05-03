@@ -39,6 +39,7 @@ def loss_plot(path, model_name, n_epochs, total_loss_training):
     plt.ylabel('Training Loss')
     plt.xlabel('Number of Epochs')
     plt.title("Training Loss Graph")
+    plt.grid(True)
     plt.savefig(plot_path)
 
 

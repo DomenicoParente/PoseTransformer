@@ -10,8 +10,8 @@ data_augmentation: True
 n_video: 13
 dataset_name: training_dataset
 data_init: False
-data_mean: [0.3124, 0.2982, 0.2637]
-data_std: [0.2250, 0.2303, 0.2492]
+data_mean: [0.3199, 0.3053, 0.2669]
+data_std: [0.2213, 0.2288, 0.2512]
 
 # DATA SETTINGS
 n_frames: 16
@@ -35,6 +35,7 @@ pretrain: True
 pretrained_path: "pretrained_models/"
 pretrained_model: "vivit_model.pth"
 batch_size: 2
+n_workers: 0
 n_epochs: 25
 step_size: 5
 l_rate: 0.01
@@ -42,13 +43,13 @@ gamma: 0.5
 save: True
 summary: True
 loss_plot: True
-log_interval: 40
+log_interval: 100
 
 # TESTING SETTINGS
 trained: True
 cvs_file: True
 trajectory_plot: True
 trained_path: "trained_models/"
-trained_model: "PT_model18-04-21_29"
+trained_model: "PT_model19-04-23_12"
 test_dataset_name: "test_dataset"
 

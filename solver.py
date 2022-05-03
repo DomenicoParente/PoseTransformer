@@ -38,6 +38,7 @@ class Solver:
         self.model = model.PoseTransformer(self.config["n_frames"], self.config["height"], self.config["width"],
                                            self.config["patch_t"], self.config["patch_h"], self.config["patch_w"],
                                            self.config["channels"], self.config["dim_out"])
+
         self.criterion = PoseLoss(self.device)
 
         # Create name for the current trained model
@@ -84,7 +85,7 @@ class Solver:
         model_path = self.config["trained_path"] + self.config["trained_model"] + "/" + self.config["trained_model"]
         print("Setup trained model")
         if torch.cuda.is_available():
-            pretrained_model = torch.load(model_path)
+            pretrained_model = torch.load(model_path, map_location=torch.device('cpu'))
         else:
             pretrained_model = torch.load(model_path, map_location=torch.device('cpu'))
         self.model.load_state_dict(torch.load(model_path))
@@ -94,35 +95,24 @@ class Solver:
         if not (os.path.isfile(dataset_name)):
             print('Setup dataset')
 
-            if self.config["data_augmentation"]:
-                transform = transforms.Compose([
-                    transforms.ToTensor(),
-                    transforms.ColorJitter(),
-                    transforms.RandomSolarize(100),
-                    transforms.RandomEqualize(),
-                    transforms.RandomAdjustSharpness(0.5),
-                    transforms.RandomErasing(),
-                    transforms.Resize((self.config["height"], self.config["width"])),
-                    transforms.Normalize(self.config["data_mean"], self.config["data_std"])
-                ])
-            else:
-                transform = transforms.Compose([
-                    transforms.ToTensor(),
-                    transforms.Resize((self.config["height"], self.config["width"])),
-                    transforms.Normalize(self.config["data_mean"], self.config["data_std"])
-                ])
+            transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Resize((self.config["height"], self.config["width"])),
+                transforms.Normalize(self.config["data_mean"], self.config["data_std"])
+            ])
 
             """
             dataset = RGBDDataset(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
                                   self.config["frame_template"], self.config["label_template"],
-                                  self.config["n_video"],
-                                  self.config["f_per_segment"], transform)
+                                  self.config["n_video"], self.config["f_per_segment"],
+                                  self.config["data_augmentation"], transform)
             """
 
             dataset = RGBDDataset_v2(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
                                      self.config["frame_template"], self.config["label_template"], self.config["n_video"],
-                                     self.config["f_per_segment"], transform)
-            training_dataset = DataLoader(dataset, batch_size=self.config["batch_size"], shuffle=False)
+                                     self.config["f_per_segment"], self.config["data_augmentation"], transform)
+            training_dataset = DataLoader(dataset, batch_size=self.config["batch_size"], shuffle=False,
+                                          num_workers=self.config["n_workers"])
 
             torch.save(training_dataset, dataset_name)
         train_data = torch.load(dataset_name)
@@ -169,7 +159,7 @@ class Solver:
 
         # Write summary
         if self.config["summary"]:
-            summary_filepath = trained_model_path + self.model_name + "_summary"
+            summary_filepath = trained_model_path + self.model_name + "_summary.txt"
             summary_file = open(summary_filepath, 'w')
             summary_file.write("Summary " + self.model_name + "\n")
             summary_file.write("\n Input size: " + "[" +

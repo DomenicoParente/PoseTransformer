@@ -48,12 +48,9 @@ class PoseTransformerFirst(nn.Module):
 
 class PoseTransformer(nn.Module):
     """Reference: https://github.com/mx-mark/VideoTransformer-pytorch"""
-    supported_attention_types = [
-        'fact_encoder', 'joint_space_time', 'divided_space_time'
-    ]
-
+    """Model with Divided Space Time Transformer Encoder"""
     def __init__(self, num_frames, height, width, patch_time, patch_height, patch_width, channels, dim_out,
-                 embed_dims=768, num_heads=12, num_transformer_layers=12, dropout_p=0.2, norm_layer=nn.LayerNorm, **kwargs):
+                 embed_dims=768, num_heads=12, num_transformer_layers=12, dropout_p=0.0, norm_layer=nn.LayerNorm, **kwargs):
         super().__init__()
         num_frames = num_frames // patch_time
         self.num_frames = num_frames
@@ -68,7 +65,6 @@ class PoseTransformer(nn.Module):
         self.patch_embed = PatchEmbed(width, height, patch_width, patch_height, patch_time, channels, embed_dims)
         num_patches = self.patch_embed.num_patches
 
-        # Divided Space Time Transformer Encoder - Model 2
         transformer_layers = nn.ModuleList([])
         self.num_time_transformer_layers = 4
 
@@ -96,7 +92,7 @@ class PoseTransformer(nn.Module):
         self.transformer_layers = transformer_layers
         self.norm = norm_layer(embed_dims, eps=1e-6)
 
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dims))
+        self.token = nn.Parameter(torch.zeros(1, 1, embed_dims))
         # whether to add one cls_token in temporal pos_enb
         num_frames = num_frames + 1
         num_patches = num_patches + 1
@@ -117,29 +113,30 @@ class PoseTransformer(nn.Module):
 
     def prepare_tokens(self, x):
         # Tokenize
-        b = x.shape[0]
+        batch = x.shape[0]
         x = self.patch_embed(x)
         # Add Position Embedding
-        cls_tokens = repeat(self.cls_token, 'b ... -> (repeat b) ...', repeat=x.shape[0])
-        x = torch.cat((cls_tokens, x), dim=1)
+        tokens = repeat(self.token, 'b ... -> (repeat b) ...', repeat=x.shape[0])
+        x = torch.cat((tokens, x), dim=1)
         x = x + self.pos_embed
         x = self.drop_after_pos(x)
 
-        return x, cls_tokens, b
+        return x, tokens, batch
 
     def forward(self, x):
-        x, cls_tokens, b = self.prepare_tokens(x)
+        x, tokens, b = self.prepare_tokens(x)
 
         # fact encoder - CRNN style
         spatial_transformer, temporal_transformer, = *self.transformer_layers,
         x = spatial_transformer(x)
 
         # Add Time Embedding
-        cls_tokens = x[:b, 0, :].unsqueeze(1)
+        tokens = x[:b, 0, :].unsqueeze(1)
         x = rearrange(x[:, 1:, :], '(b t) p d -> b t p d', b=b)
         x = reduce(x, 'b t p d -> b t d', 'mean')
-        x = torch.cat((cls_tokens, x), dim=1)
+        x = torch.cat((tokens, x), dim=1)
         x = x + self.time_embed
+        x = self.drop_after_time(x)
         x = temporal_transformer(x)
 
         x = self.norm(x)

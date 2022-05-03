@@ -14,7 +14,7 @@ class RGBDDataset(Dataset):
     can be very spaced apart from each other. Reference: https://github.com/RaivoKoot/Video-Dataset-Loading-Pytorch
     """
     def __init__(self, img_dir, label_dir, n_segment, frame_template, label_template, n_video, frames_per_segment=1,
-                 transform=None):
+                 data_augmentation=False, transform=None):
 
         self.img_dir = img_dir
         self.label_dir = label_dir
@@ -24,6 +24,7 @@ class RGBDDataset(Dataset):
         self.n_video = n_video
         self.n_segment = n_segment
         self.frames_per_segment = frames_per_segment
+        self.data_augmentation = data_augmentation
 
         if transform is None:
             self.transform = transforms.Compose([
@@ -107,7 +108,7 @@ class RGBDDataset_v2(Dataset):
      Then it passes to the next scene. """
 
     def __init__(self, img_dir, label_dir, n_segment, frame_template, label_template, n_video, frames_per_segment=1,
-                 transform=None):
+                 data_augmentation=False, transform=None):
 
         self.img_dir = img_dir
         self.label_dir = label_dir
@@ -117,6 +118,7 @@ class RGBDDataset_v2(Dataset):
         self.n_video = n_video
         self.frames_per_segment = frames_per_segment
         self.n_frames = n_segment * frames_per_segment
+        self.data_augmentation = data_augmentation
 
         if transform is None:
             self.transform = transforms.Compose([
@@ -168,14 +170,10 @@ class RGBDDataset_v2(Dataset):
         for j in range(self.n_video):
             count_p = count
             count += (self.getN_frames(j) // self.n_frames)
-            #print("Count:", count)
-            #print("J:", j)
             if idx < count:
                 video_index = j
                 break
 
-        #print("V:", video_index)
-        #print("N:", self.n_video)
         if video_index > self.n_video:
             print("Error Data-loader index.")
             return
@@ -184,10 +182,6 @@ class RGBDDataset_v2(Dataset):
             print("ERROR. The number of frames in dataset is smaller than the number required.")
 
         frame_idx = (idx - count_p) * self.n_frames
-        #print("IDX: ", idx)
-        #print("Video index:", video_index)
-        #print("Frame: ", frame_idx)
-        #print("Count: ", count_p)
         for i in range(self.n_frames):
             f = self.load_frame(video_index, (frame_idx + i))
             frames.append(f)
