@@ -82,7 +82,7 @@ class Solver:
 
     def load_trained_model(self):
         """Load previous trained models for testing"""
-        model_path = self.config["trained_path"] + self.config["trained_model"] + "/" + self.config["trained_model"]
+        model_path = self.config["trained_path"] + self.config["trained_model"] + "/" + self.config["trained_model"] + ".pth"
         print("Setup trained model")
         if torch.cuda.is_available():
             pretrained_model = torch.load(model_path, map_location=torch.device('cpu'))
@@ -273,8 +273,8 @@ class Solver:
                 ori_out = F.normalize(ori_out, p=2, dim=1)
                 ori_out = ori_out.squeeze(0).detach().cpu().numpy()
 
-                ori_true = target[:, :, :4].squeeze(0).numpy()
-                pos_true = target[:, :, 4:].squeeze(0).numpy()
+                ori_true = target[:, :, :4].squeeze(0).cpu().numpy()
+                pos_true = target[:, :, 4:].squeeze(0).cpu().numpy()
 
                 #ori_true = utils.quat_to_euler(ori_true)
                 #ori_out = utils.quat_to_euler(ori_out)
