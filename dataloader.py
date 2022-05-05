@@ -6,7 +6,6 @@ from torch.utils.data import Dataset
 import torch
 from torchvision import transforms
 import dataAugmentation
-import cv2
 
 
 # DataLoader for RGB-D Scenes Dataset v.2 by University of Washington
@@ -205,7 +204,6 @@ class RGBDDataset_v2(Dataset):
             for fr in frames:
                 fr = aug(fr)
                 temp.append(fr)
-
 
         if self.transform is not None:
             for fr in temp:
