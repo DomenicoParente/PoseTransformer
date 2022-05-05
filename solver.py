@@ -74,7 +74,7 @@ class Solver:
         new_state_dict = OrderedDict()
 
         for key, value in pretrained_model.items():
-            key = key[6:]  # remove `model.`
+            key = key[6:]
             new_state_dict[key] = value
         missing_keys, unexpected_keys = self.model.load_state_dict(new_state_dict, strict=False)
         # print(f'missing_keys:{missing_keys}\n unexpected_keys:{unexpected_keys}')
@@ -92,29 +92,29 @@ class Solver:
 
     def load_dataset(self, dataset_name):
         """Load the dataset and save files for training"""
-        if not (os.path.isfile(dataset_name)):
-            print('Setup dataset')
+        if os.path.isfile(dataset_name):
+            os.remove(dataset_name)
+        print('Setup dataset')
 
-            transform = transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Resize((self.config["height"], self.config["width"])),
-                transforms.Normalize(self.config["data_mean"], self.config["data_std"])
-            ])
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Resize((self.config["height"], self.config["width"])),
+            transforms.Normalize(self.config["data_mean"], self.config["data_std"])
+        ])
 
-            """
-            dataset = RGBDDataset(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
-                                  self.config["frame_template"], self.config["label_template"],
-                                  self.config["n_video"], self.config["f_per_segment"],
-                                  self.config["data_augmentation"], transform)
-            """
+        """
+        dataset = RGBDDataset(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
+                                self.config["frame_template"], self.config["label_template"],
+                                self.config["n_video"], self.config["f_per_segment"],
+                                self.config["data_augmentation"], transform)
+        """
+        dataset = RGBDDataset_v2(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
+                                 self.config["frame_template"], self.config["label_template"], self.config["n_video"],
+                                 self.config["f_per_segment"], self.config["data_augmentation"], transform)
+        training_dataset = DataLoader(dataset, batch_size=self.config["batch_size"], shuffle=False,
+                                      num_workers=self.config["n_workers"])
 
-            dataset = RGBDDataset_v2(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
-                                     self.config["frame_template"], self.config["label_template"], self.config["n_video"],
-                                     self.config["f_per_segment"], self.config["data_augmentation"], transform)
-            training_dataset = DataLoader(dataset, batch_size=self.config["batch_size"], shuffle=False,
-                                          num_workers=self.config["n_workers"])
-
-            torch.save(training_dataset, dataset_name)
+        torch.save(training_dataset, dataset_name)
         train_data = torch.load(dataset_name)
 
         return train_data
@@ -273,11 +273,11 @@ class Solver:
                 ori_out = F.normalize(ori_out, p=2, dim=1)
                 ori_out = ori_out.squeeze(0).detach().cpu().numpy()
 
-                ori_true = target[:, :, :4].squeeze(0).cpu().numpy()
-                pos_true = target[:, :, 4:].squeeze(0).cpu().numpy()
+                ori_true = target[:, :, :4].squeeze(0).detach().cpu().numpy()
+                pos_true = target[:, :, 4:].squeeze(0).detach().cpu().numpy()
 
-                #ori_true = utils.quat_to_euler(ori_true)
-                #ori_out = utils.quat_to_euler(ori_out)
+                ori_true = utils.quat_to_euler(ori_true)
+                ori_out = utils.quat_to_euler(ori_out)
 
                 loss_pos = utils.array_dist(pos_out, pos_true)
                 loss_ori = utils.array_dist(ori_out, ori_true)
@@ -291,7 +291,7 @@ class Solver:
         print('Test Position Loss: {:.6f} \t Test Orientation Loss: {:.6f}'.format(
               np.mean(pos_loss_testing), np.mean(ori_loss_testing)))
 
-        summary_filepath = self.models_save_path + self.config["trained_model"] + "/" + self.config["trained_model"] + "_summary"
+        summary_filepath = self.models_save_path + self.config["trained_model"] + "/" + self.config["trained_model"] + "_summary.txt"
         if self.config["summary"] and exists(summary_filepath):
             summary_file = open(summary_filepath, 'a')
             summary_file.write("Overall test position error: " + str(np.mean(pos_loss_testing)) + "\n")

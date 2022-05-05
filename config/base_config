@@ -6,7 +6,7 @@ n_segments: 8
 f_per_segment: 2
 frame_template: "{:05d}-color.png"
 label_template: "{:02d}.pose"
-data_augmentation: True
+data_augmentation: False
 n_video: 13
 dataset_name: training_dataset
 data_init: False
@@ -35,11 +35,11 @@ pretrain: True
 pretrained_path: "pretrained_models/"
 pretrained_model: "vivit_model.pth"
 batch_size: 2
-n_workers: 0
-n_epochs: 25
-step_size: 5
+n_workers: 2
+n_epochs: 350
+step_size: 45
 l_rate: 0.01
-gamma: 0.5
+gamma: 0.8
 save: True
 summary: True
 loss_plot: True
@@ -50,6 +50,6 @@ trained: True
 cvs_file: True
 trajectory_plot: True
 trained_path: "trained_models/"
-trained_model: "PT_model19-04-23_12"
+trained_model: "PT_model03-05-22_29"
 test_dataset_name: "test_dataset"
 
