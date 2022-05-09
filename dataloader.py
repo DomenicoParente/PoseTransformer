@@ -204,6 +204,8 @@ class RGBDDataset_v2(Dataset):
             for fr in frames:
                 fr = aug(fr)
                 temp.append(fr)
+        else:
+            temp = frames
 
         if self.transform is not None:
             for fr in temp:

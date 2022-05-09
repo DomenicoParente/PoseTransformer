@@ -276,8 +276,8 @@ class Solver:
                 ori_true = target[:, :, :4].squeeze(0).detach().cpu().numpy()
                 pos_true = target[:, :, 4:].squeeze(0).detach().cpu().numpy()
 
-                ori_true = utils.quat_to_euler(ori_true)
-                ori_out = utils.quat_to_euler(ori_out)
+                #ori_true = utils.quat_to_euler(ori_true)
+                #ori_out = utils.quat_to_euler(ori_out)
 
                 loss_pos = utils.array_dist(pos_out, pos_true)
                 loss_ori = utils.array_dist(ori_out, ori_true)
