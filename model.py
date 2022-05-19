@@ -4,10 +4,10 @@ from modules import *
 from einops import rearrange, repeat, reduce
 
 
-class PoseTransformerFirst(nn.Module):
+class PoseTransformer_v1(nn.Module):
     """First implementation currently NOT used"""
     def __init__(self, n_frames, height, width, patch_time, patch_height, patch_width, channels, dim, heads,
-                 mlp_dim, depth_l, dim_out, dropout=0.2):
+                 mlp_dim, depth_l, dim_out, dropout=0.2, ldrop=0.0):
         super().__init__()
 
         # The number of video frames are considered the discrete time of the video
@@ -23,8 +23,8 @@ class PoseTransformerFirst(nn.Module):
 
         self.transformer = modules.Transformer(dim, heads, mlp_dim, depth_l, dropout)
         self.mlp_head = modules.MLPhead(dim * n_w * n_h, dim_out)
-        self.pos = modules.PosLinear(dim_out)
-        self.ori = modules.OriLinear(dim_out)
+        self.pos = modules.PosLinear(dim_out, ldrop)
+        self.ori = modules.OriLinear(dim_out, ldrop)
         self.initialize_weights()
 
     def forward(self, x):
@@ -49,7 +49,7 @@ class PoseTransformerFirst(nn.Module):
 class PoseTransformer(nn.Module):
     """Reference: https://github.com/mx-mark/VideoTransformer-pytorch"""
     """Model with Divided Space Time Transformer Encoder"""
-    def __init__(self, num_frames, height, width, patch_time, patch_height, patch_width, channels, dim_out,
+    def __init__(self, num_frames, height, width, patch_time, patch_height, patch_width, channels, dim_out, ldrop=0.0,
                  embed_dims=768, num_heads=12, num_transformer_layers=12, dropout_p=0.0, norm_layer=nn.LayerNorm, **kwargs):
         super().__init__()
         num_frames = num_frames // patch_time
@@ -62,8 +62,8 @@ class PoseTransformer(nn.Module):
         self.num_time_transformer_layers = 0
 
         # tokenize & position embedding
-        self.patch_embed = PatchEmbed(width, height, patch_width, patch_height, patch_time, channels, embed_dims)
-        num_patches = self.patch_embed.num_patches
+        self.patch_embedding = PatchEmbed(width, height, patch_width, patch_height, patch_time, channels, embed_dims)
+        num_patches = self.patch_embedding.num_patches
 
         transformer_layers = nn.ModuleList([])
         self.num_time_transformer_layers = 4
@@ -98,23 +98,23 @@ class PoseTransformer(nn.Module):
         num_patches = num_patches + 1
 
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dims))
-        self.time_embed = nn.Parameter(torch.zeros(1, num_frames, embed_dims))
+        self.time_embedding = nn.Parameter(torch.zeros(1, num_frames, embed_dims))
         self.drop_after_pos = nn.Dropout(p=dropout_p)
         self.drop_after_time = nn.Dropout(p=dropout_p)
 
-        self.pos = modules.PosLinear(dim_out)
-        self.ori = modules.OriLinear(dim_out)
+        self.pos = modules.PosLinear(dim_out, ldrop)
+        self.ori = modules.OriLinear(dim_out, ldrop)
 
         self.init_weights()
 
     def init_weights(self):
         nn.init.trunc_normal_(self.pos_embed, std=.02)
-        nn.init.trunc_normal_(self.time_embed, std=.02)
+        nn.init.trunc_normal_(self.time_embedding, std=.02)
 
     def prepare_tokens(self, x):
         # Tokenize
         batch = x.shape[0]
-        x = self.patch_embed(x)
+        x = self.patch_embedding(x)
         # Add Position Embedding
         tokens = repeat(self.token, 'b ... -> (repeat b) ...', repeat=x.shape[0])
         x = torch.cat((tokens, x), dim=1)
@@ -125,20 +125,17 @@ class PoseTransformer(nn.Module):
 
     def forward(self, x):
         x, tokens, b = self.prepare_tokens(x)
-
         # fact encoder - CRNN style
         spatial_transformer, temporal_transformer, = *self.transformer_layers,
         x = spatial_transformer(x)
-
         # Add Time Embedding
         tokens = x[:b, 0, :].unsqueeze(1)
         x = rearrange(x[:, 1:, :], '(b t) p d -> b t p d', b=b)
         x = reduce(x, 'b t p d -> b t d', 'mean')
         x = torch.cat((tokens, x), dim=1)
-        x = x + self.time_embed
+        x = x + self.time_embedding
         x = self.drop_after_time(x)
         x = temporal_transformer(x)
-
         x = self.norm(x)
         x = x[:, 1:]
         pos = self.pos(x)

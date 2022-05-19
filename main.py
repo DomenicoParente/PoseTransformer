@@ -59,6 +59,11 @@ def main():
         data = solver.load_dataset_test(config["test_dataset_name"])
         # Test the model
         solver.test(data)
+    elif config["mode"] == "checkpoint":
+        # Load dataset for testing
+        data = solver.load_dataset(config["dataset_name"])
+        # Returns to the point the training stopped
+        solver.train(data)
     else:
         print("ERROR. Mode not present")
         return

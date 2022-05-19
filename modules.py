@@ -58,13 +58,15 @@ class MLPhead(nn.Module):
 class PosLinear(nn.Module):
     """Final linear layer that gives the position as result"""
 
-    def __init__(self, dim: int, outdim=3):
+    def __init__(self, dim: int, dropout=0.0, outdim=3):
         super(PosLinear, self).__init__()
         self.linear = nn.Linear(dim, outdim, bias=True)
+        self.dropout = nn.Dropout(dropout)
         self.initialize_weights()
 
     def forward(self, x):
         x = self.linear(x)
+        x = self.dropout(x)
         return x
 
     def initialize_weights(self):
@@ -76,13 +78,15 @@ class PosLinear(nn.Module):
 class OriLinear(nn.Module):
     """Final linear layer that gives the orientation as quaternion"""
 
-    def __init__(self, dim: int, outdim=4):
+    def __init__(self, dim: int, dropout=0.0, outdim=4):
         super(OriLinear, self).__init__()
         self.linear = nn.Linear(dim, outdim, bias=True)
+        self.dropout = nn.Dropout(dropout)
         self.initialize_weights()
 
     def forward(self, x):
         x = self.linear(x)
+        x = self.dropout(x)
         return x
 
     def initialize_weights(self):
@@ -366,9 +370,16 @@ class BasicTransformerBlock(nn.Module):
 
 
 class PoseLoss(nn.Module):
-    def __init__(self, device, beta=-6.5):
+    def __init__(self, device, sx=0.0, sq=0.0, learn_beta=False):
         super(PoseLoss, self).__init__()
-        self.beta = torch.Tensor([beta]).to(device)
+        self.learn_beta = learn_beta
+
+        if not self.learn_beta:
+            self.sx = 0
+            self.sq = -6.25
+
+        self.sx = nn.Parameter(torch.Tensor([sx]).to(device), requires_grad=self.learn_beta)
+        self.sq = nn.Parameter(torch.Tensor([sq]).to(device), requires_grad=self.learn_beta)
 
         self.loss_print = None
 
@@ -377,7 +388,10 @@ class PoseLoss(nn.Module):
         loss_x = F.l1_loss(pred_x, target_x)
         loss_q = F.l1_loss(pred_q, target_q)
 
-        loss = loss_x + torch.exp(-self.beta) * loss_q
+        loss = torch.exp(-self.sx) * loss_x \
+               + self.sx \
+               + torch.exp(-self.sq) * loss_q \
+               + self.sq
 
         self.loss_print = [loss.item(), loss_x.item(), loss_q.item()]
 

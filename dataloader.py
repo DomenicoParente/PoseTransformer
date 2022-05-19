@@ -195,7 +195,7 @@ class RGBDDataset_v2(Dataset):
             f = self.load_frame(video_index, (frame_idx + i))
             frames.append(f)
             # For each segment it takes the last label
-            if i % self.frames_per_segment == 0:
+            if (i+1) % self.frames_per_segment == 0:
                 label = self.getLabel(video_index, (frame_idx + i))
                 labels.append(label)
 
@@ -220,9 +220,9 @@ class RGBDDataset_v2(Dataset):
 
 
 class RGBDDataset_test(Dataset):
-    """Dato loader for testing: it takes all frames from 14 scene (n frames per time) """
+    """Dato loader for testing: it takes all frames from a chosen scene (n frames per time) """
     def __init__(self, img_dir, label_dir, n_segment, frame_template, label_template, n_video, frames_per_segment=1,
-                 transform=None):
+                 scene=14, transform=None):
 
         self.img_dir = img_dir
         self.label_dir = label_dir
@@ -230,7 +230,7 @@ class RGBDDataset_test(Dataset):
         self.frame_template = frame_template
         self.label_template = label_template
         self.n_video = n_video
-        self.index = 13
+        self.index = scene - 1
         self.n_frames = n_segment * frames_per_segment
         self.frames_per_segment = frames_per_segment
 
@@ -283,7 +283,7 @@ class RGBDDataset_test(Dataset):
             f = self.load_frame(self.index, (frame_idx + i))
             frames.append(f)
             # For each segment it takes the last label
-            if i % self.frames_per_segment == 0:
+            if (i+1) % self.frames_per_segment == 0:
                 label = self.getLabel(self.index, (frame_idx + i))
                 labels.append(label)
 

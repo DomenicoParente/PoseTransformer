@@ -29,21 +29,22 @@ class Solver:
         # Setting model, loss function
         self.config = config
         """
-        self.model = model.PoseTransformer(self.config["n_frames"], self.config["height"], self.config["width"],
+        self.model = model.PoseTransformer_v1(self.config["n_frames"], self.config["height"], self.config["width"],
                                            self.config["patch_t"], self.config["patch_h"], self.config["patch_w"],
                                            self.config["channels"], self.config["dim"], self.config["n_heads"],
-                                           self.config["mlp_dim"], self.config["depth"], self.config["dim_out"])
+                                           self.config["mlp_dim"], self.config["depth"], self.config["dim_out"],
+                                           self.config["last_dropout"])
         """
 
         self.model = model.PoseTransformer(self.config["n_frames"], self.config["height"], self.config["width"],
                                            self.config["patch_t"], self.config["patch_h"], self.config["patch_w"],
-                                           self.config["channels"], self.config["dim_out"])
+                                           self.config["channels"], self.config["dim_out"], self.config["last_dropout"])
 
         self.criterion = PoseLoss(self.device)
 
         # Create name for the current trained model
         now = datetime.now()
-        self.model_name = "PT_model" + now.strftime("%d-%m-%H_%M")
+        self.model_name = "PT_model" + now.strftime("%m-%d-%H_%M")
 
         # Load pretrained model
         if self.config["pretrain"] and self.config["mode"] == "train":
@@ -101,7 +102,6 @@ class Solver:
             transforms.Resize((self.config["height"], self.config["width"])),
             transforms.Normalize(self.config["data_mean"], self.config["data_std"])
         ])
-
         """
         dataset = RGBDDataset(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
                                 self.config["frame_template"], self.config["label_template"],
@@ -111,9 +111,9 @@ class Solver:
         dataset = RGBDDataset_v2(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
                                  self.config["frame_template"], self.config["label_template"], self.config["n_video"],
                                  self.config["f_per_segment"], self.config["data_augmentation"], transform)
+
         training_dataset = DataLoader(dataset, batch_size=self.config["batch_size"], shuffle=False,
                                       num_workers=self.config["n_workers"])
-
         torch.save(training_dataset, dataset_name)
         train_data = torch.load(dataset_name)
 
@@ -121,65 +121,95 @@ class Solver:
 
     def load_dataset_test(self, dataset_name):
         """Load the dataset and save files for testing"""
-        if not (os.path.isfile(dataset_name)):
-            print('Setup test dataset')
+        if os.path.isfile(dataset_name):
+            os.remove(dataset_name)
+        print('Setup test dataset')
 
-            transform = transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Resize((self.config["height"], self.config["width"])),
-                transforms.Normalize(self.config["data_mean"], self.config["data_std"])
-            ])
+        # Basic transformations for all frames uploaded
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Resize((self.config["height"], self.config["width"])),
+            transforms.Normalize(self.config["data_mean"], self.config["data_std"])
+        ])
 
-            dataset = RGBDDataset_test(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
-                                       self.config["frame_template"], self.config["label_template"], self.config["n_video"],
-                                       self.config["f_per_segment"], transform)
-            test_dataset = DataLoader(dataset, batch_size=1, shuffle=False)
+        dataset = RGBDDataset_test(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
+                                   self.config["frame_template"], self.config["label_template"], self.config["n_video"],
+                                   self.config["f_per_segment"], self.config["test_scene"], transform)
+        test_dataset = DataLoader(dataset, batch_size=1, shuffle=False)
 
-            torch.save(test_dataset, dataset_name)
+        torch.save(test_dataset, dataset_name)
         test_data = torch.load(dataset_name)
 
         return test_data
 
+
     def train(self, train_data):
         print("Training starting")
+        print("Model: ", self.model_name)
         train_model = self.model.to(self.device)
+        start = 0
 
         # Optimizer
         optimizer = optim.SGD(train_model.parameters(), lr=self.config["l_rate"])
         # Scheduler
         scheduler = StepLR(optimizer, step_size=self.config["step_size"], gamma=self.config["gamma"])
 
-        # Creates a directory for the trained models when it does not exist
-        if not os.path.exists(self.models_save_path) and self.config["save"]:
-            os.makedirs(self.models_save_path)
+        if self.config["mode"] == "train":
+            # Creates a directory for the trained models when it does not exist
+            if not os.path.exists(self.models_save_path) and self.config["save"]:
+                os.makedirs(self.models_save_path)
 
-        # Create a directory for the current trained model
-        trained_model_path = self.models_save_path + self.model_name + "/"
-        os.makedirs(trained_model_path)
+            # Create a directory for the current trained model when it does not exist
+            trained_model_path = self.models_save_path + self.model_name + "/"
+            if not os.path.exists(trained_model_path):
+                os.makedirs(trained_model_path)
+
+            # Create a directory to store the training checkpoints
+            if self.config["checkpoint"]:
+                checkpoint_model_path = trained_model_path + "checkpoints/"
+                if not os.path.exists(checkpoint_model_path):
+                    os.makedirs(checkpoint_model_path)
+
+        # it restarts the training from the epoch saved in the checkpoint
+        if self.config["mode"] == "checkpoint":
+            print("Check point: ", self.config["checkpoint_to_load"])
+            model_path = self.models_save_path + self.config["checkpoint_model"] + "/"
+            checkpoint = torch.load(model_path + "checkpoints/" + self.config["checkpoint_to_load"])
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            start = checkpoint['epoch']
+            if self.config["summary"]:
+                summary_filepath = self.models_save_path + self.config["checkpoint_model"] + "/" + \
+                                   self.config["checkpoint_model"] + "_summary.txt"
+                summary_file = open(summary_filepath, 'a')
 
         # Write summary
-        if self.config["summary"]:
-            summary_filepath = trained_model_path + self.model_name + "_summary.txt"
-            summary_file = open(summary_filepath, 'w')
-            summary_file.write("Summary " + self.model_name + "\n")
-            summary_file.write("\n Input size: " + "[" +
-                               str(self.config["channels"]) + " " + str(self.config["n_frames"]) + " " +
-                               str(self.config["height"]) + " " + str(self.config["width"]) + "]\n")
-            summary_file.write("\n Number of epochs: " + str(self.config["n_epochs"]))
-            summary_file.write("\n Initial learning rate: " + str(self.config["l_rate"]))
-            summary_file.write("\n Step size: " + str(self.config["step_size"]))
-            summary_file.write("\n Gamma: " + str(self.config["gamma"]))
-            if self.config["pretrain"]:
-                summary_file.write("\n The model is pretrained\n")
-            else:
-                summary_file.write("\n The model is not pretrained\n")
-            if self.config["data_augmentation"]:
-                summary_file.write("\n Data augmentation ON\n")
-            else:
-                summary_file.write("\n Data augmentation OFF\n")
-            summary_file.write("\n")
-            summary_file.write(repr(self.model))
-            summary_file.write("\n")
+        if start == 0:
+            if self.config["summary"]:
+                summary_filepath = trained_model_path + self.model_name + "_summary.txt"
+                summary_file = open(summary_filepath, 'w')
+                summary_file.write("Summary " + self.model_name + "\n")
+                summary_file.write("\n Input size: " + "[" +
+                                   str(self.config["channels"]) + " " + str(self.config["n_frames"]) + " " +
+                                   str(self.config["height"]) + " " + str(self.config["width"]) + "]\n")
+                summary_file.write("\n Patch size: " + "[" +
+                                   str(self.config["patch_w"]) + " " + str(self.config["patch_h"]) + " " +
+                                   str(self.config["patch_t"]) + "]\n")
+                summary_file.write("\n Number of epochs: " + str(self.config["n_epochs"]))
+                summary_file.write("\n Initial learning rate: " + str(self.config["l_rate"]))
+                summary_file.write("\n Step size: " + str(self.config["step_size"]))
+                summary_file.write("\n Gamma: " + str(self.config["gamma"]))
+                if self.config["pretrain"]:
+                    summary_file.write("\n The model is pretrained\n")
+                else:
+                    summary_file.write("\n The model is not pretrained\n")
+                if self.config["data_augmentation"]:
+                    summary_file.write("\n Data augmentation ON\n")
+                else:
+                    summary_file.write("\n Data augmentation OFF\n")
+                summary_file.write("\n")
+                summary_file.write(repr(self.model))
+                summary_file.write("\n")
 
 
         total_loss_training = []
@@ -187,13 +217,13 @@ class Solver:
         ori_loss_training = []
 
         # Train NN for N epochs
-        for epoch in range(0, self.config["n_epochs"]):
+        for epoch in range(start, self.config["n_epochs"]):
             train_model.train()
             tot_loss = 0
             for batch_idx, (data, target) in enumerate(train_data):
                 data = data.to(self.device)
                 target = target.to(self.device)
-                # print("Target:", target)
+                #print("Target:", target)
                 # print('Size target: ', target.size())
 
                 # Set to zero the parameter gradient
@@ -226,9 +256,19 @@ class Solver:
             total_loss_training.append(tot_loss/(len(train_data)))
             pos_loss_training.append(loss_pos)
             ori_loss_training.append(loss_ori)
-            print('Number of epochs: ', epoch + 1)
+            print('Number of epoch: ', epoch + 1)
             print('Training Total Loss: {:.6f} \t Training Position Loss: {:.6f} \t Training Orientation Loss: {:.6f}'.format(
                     tot_loss/(len(train_data)), loss_pos, loss_ori))
+
+            if self.config["checkpoint"] and epoch % self.config["ep_checkpoint"] == 0 and epoch != 0:
+                checkpoint_name = self.model_name + "_ep_" + str(epoch+1) + "_checkpoint.pt"
+                checkpoint_path = checkpoint_model_path + checkpoint_name
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': train_model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict()
+                }, checkpoint_path)
+                print("Checkpoint saved")
 
             if self.config["summary"]:
                 n_ep = epoch + 1
@@ -275,6 +315,7 @@ class Solver:
 
                 ori_true = target[:, :, :4].squeeze(0).detach().cpu().numpy()
                 pos_true = target[:, :, 4:].squeeze(0).detach().cpu().numpy()
+
 
                 #ori_true = utils.quat_to_euler(ori_true)
                 #ori_out = utils.quat_to_euler(ori_out)

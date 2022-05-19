@@ -53,8 +53,8 @@ def trajectory_plot(filepath, target_path, estimated_path):
 
     targetposes = np.load(target_path)
     estimatedposes = np.load(estimated_path)
-    ax.scatter(targetposes[:, 4], targetposes[:, 5], color="red", label="True pose")
-    ax.scatter(estimatedposes[:, 4], estimatedposes[:, 5], color="blue", label="Estimated pose")
+    ax.scatter(targetposes[:, 0], targetposes[:, 1], color="red", label="True pose")
+    ax.scatter(estimatedposes[:, 0], estimatedposes[:, 1], color="blue", label="Estimated pose")
     plt.ylabel('y')
     plt.xlabel('x')
     ax.set_xlabel('X(m)', fontdict=font)
