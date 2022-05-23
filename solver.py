@@ -237,8 +237,8 @@ class Solver:
                 ori_true = target[:, :, :4]
                 pos_true = target[:, :, 4:]
 
-                ori_out = F.normalize(ori_out, p=2, dim=1)
-                ori_true = F.normalize(ori_true, p=2, dim=1)
+                ori_out = F.normalize(ori_out, p=2, dim=2)
+                ori_true = F.normalize(ori_true, p=2, dim=2)
 
                 loss, _, _ = self.criterion(pos_out, ori_out, pos_true, ori_true)
                 loss_t = self.criterion.loss_print[0]
@@ -275,16 +275,16 @@ class Solver:
                 summary_file.write("Epoch: " + str(n_ep) + "\n")
                 summary_file.write("Loss: " + str(loss_t) + "\n")
                 summary_file.write("Position Loss: " + str(loss_pos) + "\n")
-                summary_file.write("Orientation Loss: " + str(loss_pos) + "\n" + "\n")
+                summary_file.write("Orientation Loss: " + str(loss_ori) + "\n" + "\n")
 
             scheduler.step()
 
-        print("Overall average position error {:.6f}".format(np.mean(pos_loss_training)))
-        print("Overall average orientation error {:.6f}".format(np.mean(ori_loss_training)))
+        print("Overall average position loss {:.6f}".format(np.mean(pos_loss_training)))
+        print("Overall average orientation loss {:.6f}".format(np.mean(ori_loss_training)))
 
         if self.config["summary"]:
-            summary_file.write("Overall average position error: " + str(np.mean(pos_loss_training)) + "\n")
-            summary_file.write("Overall average orientation error: " + str(np.mean(ori_loss_training)) + "\n")
+            summary_file.write("Overall average position loss: " + str(np.mean(pos_loss_training)) + "\n")
+            summary_file.write("Overall average orientation loss: " + str(np.mean(ori_loss_training)) + "\n")
 
         if self.config["loss_plot"]:
             utils.loss_plot(trained_model_path, self.model_name, self.config["n_epochs"], total_loss_training)
@@ -310,33 +310,44 @@ class Solver:
                 # print('Size output: ', pos_out.size(), ori_out.size())
                 # print('Output:', pos_out, ori_out)
                 pos_out = pos_out.squeeze(0).detach().cpu().numpy()
-                ori_out = F.normalize(ori_out, p=2, dim=1)
+                ori_out = F.normalize(ori_out, p=2, dim=2)
                 ori_out = ori_out.squeeze(0).detach().cpu().numpy()
 
-                ori_true = target[:, :, :4].squeeze(0).detach().cpu().numpy()
+                ori_true = F.normalize(target[:, :, :4], p=2, dim=2).squeeze(0).detach().cpu().numpy()
                 pos_true = target[:, :, 4:].squeeze(0).detach().cpu().numpy()
 
-
-                #ori_true = utils.quat_to_euler(ori_true)
-                #ori_out = utils.quat_to_euler(ori_out)
-
-                loss_pos = utils.array_dist(pos_out, pos_true)
-                loss_ori = utils.array_dist(ori_out, ori_true)
-                pos_loss_testing.append(loss_pos)
-                ori_loss_testing.append(loss_ori)
+                c_ori_true = np.zeros((ori_true.shape[0], 3))
+                c_ori_out = np.zeros((ori_out.shape[0], 3))
+                for c, q_true in enumerate(ori_true):
+                    c_ori_true[c] = utils.quat_to_euler(q_true)
+                for c, q_out in enumerate(ori_out):
+                    c_ori_out[c] = utils.quat_to_euler(q_out)
 
                 for i in range(pos_true.shape[0]):
-                    target_pose.append(np.hstack((pos_true[i], ori_true[i])))
-                    estimated_pose.append(np.hstack((pos_out[i], ori_out[i])))
+                    loss_pos = utils.cal_dist(pos_out[i], pos_true[i])
+                    pos_loss_testing.append(loss_pos)
 
-        print('Test Position Loss: {:.6f} \t Test Orientation Loss: {:.6f}'.format(
-              np.mean(pos_loss_testing), np.mean(ori_loss_testing)))
+                for i in range(c_ori_true.shape[0]):
+                    loss_ori = utils.cal_ori_err(c_ori_out[i], c_ori_true[i])
+                    ori_loss_testing.append(loss_ori)
+
+                for i in range(pos_true.shape[0]):
+                    target_pose.append(np.hstack((pos_true[i], c_ori_true[i])))
+                    estimated_pose.append(np.hstack((pos_out[i], c_ori_out[i])))
+
+        ori_loss_testing = np.array(ori_loss_testing)
+        ori_mean_loss = np.mean(ori_loss_testing, 0)
+
+        print('Test Position Error: {:.6f} \n Test Orientation Error: \n Roll: {:.3f} Pitch: {:.3f}  Yaw: {:.3f}'.format(np.mean(pos_loss_testing), ori_mean_loss[0], ori_mean_loss[1], ori_mean_loss[2]))
 
         summary_filepath = self.models_save_path + self.config["trained_model"] + "/" + self.config["trained_model"] + "_summary.txt"
         if self.config["summary"] and exists(summary_filepath):
             summary_file = open(summary_filepath, 'a')
             summary_file.write("Overall test position error: " + str(np.mean(pos_loss_testing)) + "\n")
-            summary_file.write("Overall test orientation error: " + str(np.mean(ori_loss_testing)) + "\n")
+            summary_file.write("Overall test orientation error: " + "\n" +
+                               'Roll: ' + str(ori_mean_loss[0]) +
+                               ' Pitch: ' + str(ori_mean_loss[1]) +
+                               ' Yaw: ' + str(ori_mean_loss[2]))
 
         if self.config["cvs_file"]:
             path_target = self.models_save_path + self.config["trained_model"] + "/" + self.config["trained_model"] + '_pose_target.csv'

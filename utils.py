@@ -3,8 +3,8 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 
 
-def quat_to_euler(q, is_degree=False):
-    # TODO Fix function
+def quat_to_euler(q):
+    # Convert quaternion in Euler angles
     w, x, y, z = q[0], q[1], q[2], q[3]
 
     t0 = +2.0 * (w * x + y * z)
@@ -20,16 +20,26 @@ def quat_to_euler(q, is_degree=False):
     t4 = +1.0 - 2.0 * (y * y + z * z)
     yaw = np.arctan2(t3, t4)
 
-    if is_degree:
-        roll = np.rad2deg(roll)
-        pitch = np.rad2deg(pitch)
-        yaw = np.rad2deg(yaw)
+    roll = np.rad2deg(roll)
+    pitch = np.rad2deg(pitch)
+    yaw = np.rad2deg(yaw)
+    if roll < 0:
+        roll = 360 - roll
+    if pitch < 0:
+        pitch = 360 - pitch
+    if yaw < 0:
+        yaw = 360 - yaw
 
     return np.array([roll, pitch, yaw])
 
 
-def array_dist(pred, target):
+def cal_dist(pred, target):
+    # It calculates the Euclidean distance
     return np.linalg.norm(pred - target, 2)
+
+
+def cal_ori_err(pred, target):
+    return abs(pred[0] - target[0]), abs(pred[1] - target[1]), abs(pred[2] - target[2])
 
 
 def loss_plot(path, model_name, n_epochs, total_loss_training):
@@ -63,7 +73,3 @@ def trajectory_plot(filepath, target_path, estimated_path):
     plt.grid(True)
     # Save the plot as an image
     plt.savefig(filepath)
-
-
-
-

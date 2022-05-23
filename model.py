@@ -62,8 +62,8 @@ class PoseTransformer(nn.Module):
         self.num_time_transformer_layers = 0
 
         # tokenize & position embedding
-        self.patch_embedding = PatchEmbed(width, height, patch_width, patch_height, patch_time, channels, embed_dims)
-        num_patches = self.patch_embedding.num_patches
+        self.patch_embed = PatchEmbed(width, height, patch_width, patch_height, patch_time, channels, embed_dims)
+        num_patches = self.patch_embed.num_patches
 
         transformer_layers = nn.ModuleList([])
         self.num_time_transformer_layers = 4
@@ -98,7 +98,7 @@ class PoseTransformer(nn.Module):
         num_patches = num_patches + 1
 
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dims))
-        self.time_embedding = nn.Parameter(torch.zeros(1, num_frames, embed_dims))
+        self.time_embed = nn.Parameter(torch.zeros(1, num_frames, embed_dims))
         self.drop_after_pos = nn.Dropout(p=dropout_p)
         self.drop_after_time = nn.Dropout(p=dropout_p)
 
@@ -109,12 +109,12 @@ class PoseTransformer(nn.Module):
 
     def init_weights(self):
         nn.init.trunc_normal_(self.pos_embed, std=.02)
-        nn.init.trunc_normal_(self.time_embedding, std=.02)
+        nn.init.trunc_normal_(self.time_embed, std=.02)
 
     def prepare_tokens(self, x):
         # Tokenize
         batch = x.shape[0]
-        x = self.patch_embedding(x)
+        x = self.patch_embed(x)
         # Add Position Embedding
         tokens = repeat(self.token, 'b ... -> (repeat b) ...', repeat=x.shape[0])
         x = torch.cat((tokens, x), dim=1)
@@ -133,7 +133,7 @@ class PoseTransformer(nn.Module):
         x = rearrange(x[:, 1:, :], '(b t) p d -> b t p d', b=b)
         x = reduce(x, 'b t p d -> b t d', 'mean')
         x = torch.cat((tokens, x), dim=1)
-        x = x + self.time_embedding
+        x = x + self.time_embed
         x = self.drop_after_time(x)
         x = temporal_transformer(x)
         x = self.norm(x)
