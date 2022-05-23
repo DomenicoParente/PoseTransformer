@@ -376,12 +376,8 @@ class PoseLoss(nn.Module):
         self.loss_print = None
 
     def forward(self, pred_x, pred_q, target_x, target_q):
-        print("X:", pred_x)
-        print("TX:", target_x)
         loss_x = F.l1_loss(pred_x, target_x)
         loss_q = F.l1_loss(pred_q, target_q)
-        print("LossX:", loss_x)
-        print("Lossq:", loss_q)
         loss = loss_x + self.beta * loss_q
 
         self.loss_print = [loss.item(), loss_x.item(), loss_q.item()]
