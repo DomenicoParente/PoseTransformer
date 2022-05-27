@@ -98,7 +98,7 @@ class PoseTransformer(nn.Module):
         num_patches = num_patches + 1
 
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dims))
-        self.time_embedding = nn.Parameter(torch.zeros(1, num_frames, embed_dims))
+        self.time_embed = nn.Parameter(torch.zeros(1, num_frames, embed_dims))
         self.drop_after_pos = nn.Dropout(p=dropout_p)
         self.drop_after_time = nn.Dropout(p=dropout_p)
 

@@ -373,7 +373,7 @@ class PoseLoss(nn.Module):
     def __init__(self, device, beta=2):
         super(PoseLoss, self).__init__()
 
-        self.beta = torch.Tensor([beta])
+        self.beta = torch.Tensor([beta]).to(device)
         self.loss_print = None
         self.loss = torch.nn.L1Loss()
 
