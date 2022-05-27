@@ -40,7 +40,7 @@ class Solver:
                                            self.config["patch_t"], self.config["patch_h"], self.config["patch_w"],
                                            self.config["channels"], self.config["dim_out"], self.config["last_dropout"])
 
-        self.criterion = PoseLoss(self.device)
+        self.criterion = PoseLoss(self.device, self.config["beta"])
 
         # Create name for the current trained model
         now = datetime.now()
@@ -150,7 +150,8 @@ class Solver:
         start = 0
 
         # Optimizer
-        optimizer = optim.SGD(train_model.parameters(), lr=self.config["l_rate"])
+        optimizer = optim.SGD(train_model.parameters(), lr=self.config["l_rate"], momentum=self.config["momentum"],
+                              weight_decay=self.config["weight_decay"])
         # Scheduler
         scheduler = StepLR(optimizer, step_size=self.config["step_size"], gamma=self.config["gamma"])
 
@@ -197,8 +198,10 @@ class Solver:
                                    str(self.config["patch_t"]) + "]\n")
                 summary_file.write("\n Number of epochs: " + str(self.config["n_epochs"]))
                 summary_file.write("\n Initial learning rate: " + str(self.config["l_rate"]))
+                summary_file.write("\n Momentum: " + str(self.config["momentum"]))
                 summary_file.write("\n Step size: " + str(self.config["step_size"]))
                 summary_file.write("\n Gamma: " + str(self.config["gamma"]))
+                summary_file.write("\n Beta: " + str(self.config["beta"]))
                 if self.config["pretrain"]:
                     summary_file.write("\n The model is pretrained\n")
                 else:
@@ -372,3 +375,16 @@ class Solver:
             # Plot trajectory of using estimated poses and correct poses
             trajectory_plot_path = self.models_save_path + self.config["trained_model"] + "/" + self.config["trained_model"] + "_trajectory_plot"
             utils.trajectory_plot(trajectory_plot_path, nptarget_path, npestimated_path)
+
+            #Plot orientation
+            orientation_plot_path = self.models_save_path + self.config["trained_model"] + "/" + self.config["trained_model"] + "_orientation_plot"
+            utils.orientation_plot(orientation_plot_path, nptarget_path, npestimated_path)
+
+            #Plot errors graph
+            pos_err_plot_path = self.models_save_path + self.config["trained_model"] + "/" + self.config[
+                "trained_model"] + "_pos_err_plot"
+            utils.position_err_plot(pos_err_plot_path, nptarget_path, npestimated_path)
+
+            ori_err_plot_path = self.models_save_path + self.config["trained_model"] + "/" + self.config[
+                "trained_model"] + "_ori_err_plot"
+            utils.orientation_err_plot(ori_err_plot_path, nptarget_path, npestimated_path)

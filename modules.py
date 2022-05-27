@@ -370,15 +370,19 @@ class BasicTransformerBlock(nn.Module):
 
 
 class PoseLoss(nn.Module):
-    def __init__(self, device, beta=10):
+    def __init__(self, device, beta=2):
         super(PoseLoss, self).__init__()
-        self.beta = beta
+
+        self.beta = torch.Tensor([beta])
         self.loss_print = None
+        self.loss = torch.nn.L1Loss()
 
     def forward(self, pred_x, pred_q, target_x, target_q):
-        loss_x = F.l1_loss(pred_x, target_x)
-        loss_q = F.l1_loss(pred_q, target_q)
+        loss_x = self.loss(pred_x, target_x)
+        loss_q = self.loss(pred_q, target_q)
+
         loss = loss_x + self.beta * loss_q
 
         self.loss_print = [loss.item(), loss_x.item(), loss_q.item()]
+
         return loss, loss_x.item(), loss_q.item()

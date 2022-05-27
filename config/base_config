@@ -1,23 +1,23 @@
 # BASIC SETTINGS
-mode: "train"
+mode: "test"
 dataset_path: "dataset/rgbd-scenes-v2/imgs/"
 label_path: "dataset/rgbd-scenes-v2/pc/"
-n_segments: 1
-f_per_segment: 20
+n_segments: 8
+f_per_segment: 2
 frame_template: "{:05d}-color.png"
 label_template: "{:02d}.pose"
-data_augmentation: True
+data_augmentation: False
 n_video: 3
-dataset_name: "training_datasetrt"
+dataset_name: "training_datasetSPECIAL"
 data_init: False
 data_mean: [0.3199, 0.3053, 0.2669]
 data_std: [0.2213, 0.2288, 0.2512]
 
 # DATA SETTINGS
-n_frames: 20
+n_frames: 16
 width: 224
 height: 224
-patch_t: 20
+patch_t: 2
 patch_w: 16
 patch_h: 16
 channels: 3
@@ -39,18 +39,21 @@ pretrained_model: "vivit_model.pth"
 batch_size: 2
 n_workers: 2
 n_epochs: 100
-step_size: 1
-l_rate: 0.0005
-gamma: 0.1
+step_size: 5
+l_rate: 0.01
+momentum: 0.8
+gamma: 0.8
+weight_decay: 0
+beta: 2
 save: True
 summary: True
 loss_plot: True
-log_interval: 10
+log_interval: 50
 
 # CHECKPOINTS SETTINGS
 checkpoint: False
 ep_checkpoint: 1
-checkpoint_model: "PT_model05-17-23_12"
+checkpoint_model: "PT_model05-23-22_30"
 checkpoint_to_load: "PT_model05-17-23_12_ep_2_checkpoint.pt"
 
 # TESTING SETTINGS
@@ -58,7 +61,7 @@ trained: True
 cvs_file: True
 trajectory_plot: True
 trained_path: "trained_models/"
-trained_model: "PT_model05-17-16_35"
-test_dataset_name: "test_datasetrt"
+trained_model: "PT_model05-25-23_38"
+test_dataset_name: "test_datasetSpecial"
 test_scene: 4
 
