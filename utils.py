@@ -1,36 +1,85 @@
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+from scipy.spatial.transform import Rotation as R
+import torch.optim as optim
+
+
+def optimizer_selection(config, train_model, sx, sq):
+    optimizer = None
+    if config["learn_beta"]:
+        if config["optimizer"] == "adam":
+            optimizer = optim.AdamW(params=[{'params': train_model.parameters()},
+                                            {'params': [sx, sq]}],
+                                    lr=config["l_rate"],
+                                    weight_decay=config["weight_decay"])
+        elif config["optimizer"] == "sgd":
+            optimizer = optim.SGD([{'params': train_model.parameters()},
+                                   {'params': [sx, sq]}], lr=config["l_rate"],
+                                  momentum=config["momentum"],
+                                  weight_decay=config["weight_decay"])
+        elif config["optimizer"] == "rms":
+            optimizer = optim.RMSprop([{'params': train_model.parameters()},
+                                       {'params': [sx, sq]}], lr=config["l_rate"],
+                                      momentum=config["momentum"],
+                                      weight_decay=config["weight_decay"])
+        elif config["optimizer"] == "adagrad":
+            optimizer = optim.Adagrad([{'params': train_model.parameters()},
+                                       {'params': [sx, sq]}], lr=config["l_rate"],
+                                      weight_decay=config["weight_decay"])
+        else:
+            print("ERROR: Optimizer chosen is not valid")
+    else:
+        if config["optimizer"] == "adam":
+            optimizer = optim.AdamW(params=train_model.parameters(), lr=config["l_rate"],
+                                    weight_decay=config["weight_decay"])
+        elif config["optimizer"] == "sgd":
+            optimizer = optim.SGD(params=train_model.parameters(), lr=config["l_rate"],
+                                  momentum=config["momentum"],
+                                  weight_decay=config["weight_decay"])
+        elif config["optimizer"] == "rms":
+            optimizer = optim.RMSprop(params=train_model.parameters(), lr=config["l_rate"],
+                                      momentum=config["momentum"],
+                                      weight_decay=config["weight_decay"])
+        elif config["optimizer"] == "adagrad":
+            optimizer = optim.Adagrad(params=train_model.parameters(), lr=config["l_rate"],
+                                      weight_decay=config["weight_decay"])
+        else:
+            print("ERROR: Optimizer chosen is not valid")
+
+    return optimizer
+
+
+def scheduler_selection(config, optimizer):
+    scheduler = None
+    if config["scheduler"] == "step":
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=config["step_size"],
+                                              gamma=config["gamma"])
+    elif config["scheduler"] == "linear":
+        scheduler = optim.lr_scheduler.LinearLR(optimizer)
+    elif config["scheduler"] == "exponential":
+        scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=config["gamma"])
+    else:
+        print("ERROR: Scheduler chosen is not valid")
+    return scheduler
 
 
 def quat_to_euler(q):
     # Convert quaternion in Euler angles
-    w, x, y, z = q[0], q[1], q[2], q[3]
+    r = R.from_quat(q)
+    return r.as_euler('xyz')
 
-    t0 = +2.0 * (w * x + y * z)
-    t1 = +1.0 - 2.0 * (x * x + y * y)
-    roll = np.arctan2(t0, t1)
 
-    t2 = +2.0 * (w * y - z * x)
-    t2 = +1.0 if t2 > +1.0 else t2
-    t2 = -1.0 if t2 < -1.0 else t2
-    pitch = np.arcsin(t2)
+def quat_to_rotmat(q):
+    # Convert quaternion in Rotational matrix
+    r = R.from_quat(q)
+    return r.as_matrix()
 
-    t3 = +2.0 * (w * z + x * y)
-    t4 = +1.0 - 2.0 * (y * y + z * z)
-    yaw = np.arctan2(t3, t4)
 
-    roll = np.rad2deg(roll)
-    pitch = np.rad2deg(pitch)
-    yaw = np.rad2deg(yaw)
-    if roll < 0:
-        roll = 360 + roll
-    if pitch < 0:
-        pitch = 360 + pitch
-    if yaw < 0:
-        yaw = 360 + yaw
-
-    return np.array([roll, pitch, yaw])
+def rotmat_to_quat(r):
+    # Convert rotational matrix in a quaternion
+    rot = R.from_matrix(r)
+    return rot.as_quat()
 
 
 def cal_dist(pred, target):
@@ -61,7 +110,8 @@ def loss_plot(path, model_name, n_epochs, total_loss_training):
 
 
 def trajectory_plot(filepath, target_path, estimated_path):
-    fig, ax = plt.subplots(figsize=(10, 10))
+    s_filepath = filepath + "_1"
+
     mpl.rc('lines', lw=4)
     font = {'family': 'sans-serif',
             'weight': 'bold',
@@ -70,16 +120,43 @@ def trajectory_plot(filepath, target_path, estimated_path):
 
     targetposes = np.load(target_path)
     estimatedposes = np.load(estimated_path)
+    fig, ax = plt.subplots(figsize=(10, 10))
     ax.scatter(targetposes[:, 0], targetposes[:, 1], color="red", label="True pose")
     ax.scatter(estimatedposes[:, 0], estimatedposes[:, 1], color="blue", label="Estimated pose")
     plt.ylabel('y')
     plt.xlabel('x')
     ax.set_xlabel('X(m)', fontdict=font)
     ax.set_ylabel('Y(m)', fontdict=font)
-    ax.legend(title='2D Trajectory')
+    ax.legend(title='2D Trajectory X-Y')
     plt.grid(True)
     # Save the plot as an image
-    plt.savefig(filepath)
+    plt.savefig(s_filepath)
+
+    s_filepath = filepath + "_2"
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.scatter(targetposes[:, 0], targetposes[:, 2], color="red", label="True pose")
+    ax.scatter(estimatedposes[:, 0], estimatedposes[:, 2], color="blue", label="Estimated pose")
+    plt.ylabel('z')
+    plt.xlabel('x')
+    ax.set_xlabel('X(m)', fontdict=font)
+    ax.set_ylabel('Z(m)', fontdict=font)
+    ax.legend(title='2D Trajectory X-Z')
+    plt.grid(True)
+    # Save the plot as an image
+    plt.savefig(s_filepath)
+
+    s_filepath = filepath + "_3"
+    fig, ax = plt.subplots(figsize=(10, 10))
+    ax.scatter(targetposes[:, 1], targetposes[:, 2], color="red", label="True pose")
+    ax.scatter(estimatedposes[:, 1], estimatedposes[:, 2], color="blue", label="Estimated pose")
+    plt.ylabel('z')
+    plt.xlabel('y')
+    ax.set_xlabel('Y(m)', fontdict=font)
+    ax.set_ylabel('Z(m)', fontdict=font)
+    ax.legend(title='2D Trajectory Y-Z')
+    plt.grid(True)
+    # Save the plot as an image
+    plt.savefig(s_filepath)
 
 
 def orientation_plot(filepath, target_path, estimated_path):
@@ -145,18 +222,17 @@ def position_err_plot(filepath, target_path, estimated_path):
 
     targetposes = np.load(target_path)
     estimatedposes = np.load(estimated_path)
-    error_ori = np.zeros((targetposes.shape[0], 3))
+    error_pos = np.zeros((targetposes.shape[0], 3))
     for i in range(targetposes.shape[0]):
-        temp1 = targetposes[i, :3]
-        temp2 = estimatedposes[i, :3]
-        error_ori[i, 0], error_ori[i, 1], error_ori[i, 2] = cal_ori_err(temp1, temp2)
+        error_pos[i, 0] = cal_dist(targetposes[i, 0], estimatedposes[i, 0])
+        error_pos[i, 1] = cal_dist(targetposes[i, 1], estimatedposes[i, 1])
+        error_pos[i, 2] = cal_dist(targetposes[i, 2], estimatedposes[i, 2])
 
-    ax1.plot(range(targetposes.shape[0]), error_ori[:, 0], color="red")
+    ax1.plot(range(targetposes.shape[0]), error_pos[:, 0], color="red")
     ax1.set_ylabel('X', fontdict=font)
-    ax2.plot(range(targetposes.shape[0]), error_ori[:, 1], color="green")
+    ax2.plot(range(targetposes.shape[0]), error_pos[:, 1], color="green")
     ax2.set_ylabel('Y', fontdict=font)
-    ax3.plot(range(targetposes.shape[0]), error_ori[:, 2], color="blue")
+    ax3.plot(range(targetposes.shape[0]), error_pos[:, 2], color="blue")
     ax3.set_ylabel('Z', fontdict=font)
     # Save the plot as an image
     plt.savefig(filepath)
-

@@ -1,31 +1,69 @@
-import numpy as np
 import torch
-from torch import nn, einsum
+from torch import nn
 from einops import rearrange
-from einops.layers.torch import Rearrange
 import torch.nn.functional as F
 
 
-class TubeletEmbedding(nn.Module):
-    def __init__(self, p_t: int, p_w: int, p_h: int, dim: int, t_dim: int):
-        super(TubeletEmbedding, self).__init__()
-        self.tubelet_net = nn.Sequential(
-            Rearrange('b c (t pt) (h ph) (w pw) -> b t (h w) (pt ph pw c)', pt=p_t, pw=p_w, ph=p_h),
-            nn.Linear(t_dim, dim)
-        )
+class TubeletEmbed(nn.Module):
+
+    def __init__(self, time, p_w, p_h, p_t, channels=3, embed_dims=768):
+        super().__init__()
+        self.patch_width = p_w
+        self.patch_height = p_h
+        self.patch_time = p_t
+        self.batch_norm = nn.BatchNorm3d(time)
+
+        # Use convolutional layer to embed
+        self.projection = nn.Conv3d(channels, embed_dims,
+                                    kernel_size=(self.patch_time, self.patch_height, self.patch_width),
+                                    stride=(self.patch_time, self.patch_height, self.patch_width))
+        self.fc = nn.Linear(embed_dims, embed_dims)
+
+        self.initialize_weights(self.projection)
+
+    def initialize_weights(self, module):
+        if hasattr(module, 'weight') and module.weight is not None:
+            nn.init.trunc_normal_(module.weight)
+        if hasattr(module, 'bias') and module.bias is not None:
+            nn.init.constant_(module.bias, 0)
 
     def forward(self, x):
-        return self.tubelet_net(x)
+        x = self.batch_norm(x)
+        x = rearrange(x, 'b t c h w -> b c t h w')
+        x = self.projection(x)
+        x = rearrange(x, 'b c t h w -> (b t) (h w) c')
+        x = self.fc(x)
+        return x
 
-
-class PreNorm(nn.Module):
-    def __init__(self, dim: int, fn):
+class PatchEmbed(nn.Module):
+    def __init__(self, width, height, p_w, p_h, p_t, channels=3, embed_dims=768):
         super().__init__()
-        self.norm = nn.LayerNorm(dim)
-        self.fn = fn
+        self.width = width
+        self.height = height
+        self.patch_width = p_w
+        self.patch_height = p_h
+        self.patch_time = p_t
 
-    def forward(self, x, **kwargs):
-        return self.fn(self.norm(x), **kwargs)
+        num_patches = \
+            (self.width // self.patch_width) * \
+            (self.height // self.patch_height)
+        self.num_patches = num_patches
+
+        # Use convolutional 3d layer to embed video tubelet
+        self.projection = nn.Conv3d(channels, embed_dims,
+                                    kernel_size=(self.patch_time, self.patch_height, self.patch_width),
+                                    stride=(self.patch_time, self.patch_height, self.patch_width))
+        self.init_weights(self.projection)
+
+    def init_weights(self, module):
+        nn.init.trunc_normal_(module.weight.data)
+        if module.bias is not None:
+            nn.init.constant_(module.bias.data, 0)
+
+    def forward(self, x):
+        x = self.projection(x)
+        x = rearrange(x, 'b c t h w -> (b t) (h w) c')
+        return x
 
 
 class MLP(nn.Module):
@@ -43,133 +81,26 @@ class MLP(nn.Module):
         return self.net(x)
 
 
-class MLPhead(nn.Module):
+class MLP_head(nn.Module):
     def __init__(self, dim: int, dim_out: int):
-        super(MLPhead, self).__init__()
+        super(MLP_head, self).__init__()
         self.net = nn.Sequential(
             nn.LayerNorm(dim),
             nn.Linear(dim, dim_out)
         )
 
+        self.init_weights()
+
     def forward(self, x):
         return self.net(x)
 
-
-class PosLinear(nn.Module):
-    """Final linear layer that gives the position as result"""
-
-    def __init__(self, dim: int, dropout=0.0, outdim=3):
-        super(PosLinear, self).__init__()
-        self.linear = nn.Linear(dim, outdim, bias=True)
-        self.dropout = nn.Dropout(dropout)
-        self.initialize_weights()
-
-    def forward(self, x):
-        x = self.linear(x)
-        x = self.dropout(x)
-        return x
-
-    def initialize_weights(self):
-        nn.init.kaiming_normal_(self.linear.weight.data)
-        if self.linear.bias is not None:
-            nn.init.constant_(self.linear.bias.data, 0)
-
-
-class OriLinear(nn.Module):
-    """Final linear layer that gives the orientation as quaternion"""
-
-    def __init__(self, dim: int, dropout=0.0, outdim=4):
-        super(OriLinear, self).__init__()
-        self.linear = nn.Linear(dim, outdim, bias=True)
-        self.dropout = nn.Dropout(dropout)
-        self.initialize_weights()
-
-    def forward(self, x):
-        x = self.linear(x)
-        x = self.dropout(x)
-        return x
-
-    def initialize_weights(self):
-        nn.init.kaiming_normal_(self.linear.weight.data)
-        if self.linear.bias is not None:
-            nn.init.constant_(self.linear.bias.data, 0)
-
-
-class AttentionFirst(nn.Module):
-    def __init__(self, dim, heads=8, dropout=0., dim_head=64):
-        super().__init__()
-        inner_dim = dim_head * heads
-        project_out = not (heads == 1 and dim_head == dim)
-
-        self.heads = heads
-        self.scale = dim_head ** -0.5
-
-        self.to_qkv = nn.Linear(dim, inner_dim * 3, bias=False)
-
-        self.to_out = nn.Sequential(
-            nn.Linear(inner_dim, dim),
-            nn.Dropout(dropout)
-        ) if project_out else nn.Identity()
-
-    def forward(self, x):
-        b, n, _, h = *x.shape, self.heads
-        qkv = self.to_qkv(x).chunk(3, dim=-1)
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=h), qkv)
-
-        dots = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale
-
-        attn = dots.softmax(dim=-1)
-
-        out = einsum('b h i j, b h j d -> b h i d', attn, v)
-        out = rearrange(out, 'b h n d -> b n (h d)')
-        out = self.to_out(out)
-        return out
-
-
-class Transformer(nn.Module):
-    """Transformer Encoder as described in paper "ViViT: A Video Vision Transformer" """
-
-    def __init__(self, dim: int, heads: int, mlp_dim: int, depth_l: int, dropout=0.):
-        super().__init__()
-        self.layers = nn.ModuleList([])
-        self.attention = AttentionFirst(dim, heads, dropout)
-        self.norm = nn.LayerNorm(dim)
-        for _ in range(depth_l):
-            self.layers.append(nn.ModuleList([
-                PreNorm(dim, self.attention),
-                PreNorm(dim, self.attention),
-                PreNorm(dim, MLP(dim, mlp_dim, dropout))
-            ]))
-
-    def forward(self, x):
-        b = x.shape[0]
-        x = torch.flatten(x, start_dim=0, end_dim=1)  # extract spatial tokens from x
-
-        for sp_attn, temp_attn, mlp in self.layers:
-            sp_x = sp_attn(x) + x  # Spatial attention
-
-            # Reshape tensors for temporal attention
-            sp_x = sp_x.chunk(b, dim=0)
-            sp_x = [temp[None] for temp in sp_x]
-            sp_x = torch.cat(sp_x, dim=0).transpose(1, 2)
-            sp_x = torch.flatten(sp_x, start_dim=0, end_dim=1)
-
-            temp_x = temp_attn(sp_x) + sp_x  # Temporal attention
-
-            x = mlp(temp_x) + temp_x  # MLP
-
-            # Again reshape tensor for spatial attention
-            x = x.chunk(b, dim=0)
-            x = [temp[None] for temp in x]
-            x = torch.cat(x, dim=0).transpose(1, 2)
-            x = torch.flatten(x, start_dim=0, end_dim=1)
-
-        # Reshape vector to [b, nt, nh*nw, dim]
-        x = x.chunk(b, dim=0)
-        x = [temp[None] for temp in x]
-        x = torch.cat(x, dim=0)
-        x = torch.flatten(x, start_dim=2, end_dim=3)
-        return x
+    def init_weights(self):
+        mod = self.net
+        for m in mod:
+            if isinstance(m, nn.Linear):
+                nn.init.trunc_normal_(m.weight.data)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias.data, 0)
 
 
 class Attention(nn.Module):
@@ -199,41 +130,29 @@ class Attention(nn.Module):
         return x, attn
 
 
-class PatchEmbed(nn.Module):
-    def __init__(self, width, height, p_w, p_h, p_t, channels=3, embed_dims=768):
-        super().__init__()
-        self.width = width
-        self.height = height
-        self.patch_width = p_w
-        self.patch_height = p_h
-        self.patch_time = p_t
+class DropPath(nn.Module):
 
-        num_patches = \
-            (self.width // self.patch_width) * \
-            (self.height // self.patch_height)
-        self.num_patches = num_patches
-
-        # Use convolutional 3d layer to embed video tubelet
-        self.projection = nn.Conv3d(channels, embed_dims,
-                                    kernel_size=(self.patch_time, self.patch_height, self.patch_width),
-                                    stride=(self.patch_time, self.patch_height, self.patch_width))
-        self.init_weights(self.projection)
-
-    def init_weights(self, module):
-        nn.init.kaiming_normal_(module.weight.data)
-        if module.bias is not None:
-            nn.init.constant_(module.bias.data, 0)
+    def __init__(self, dropout_p=None):
+        super(DropPath, self).__init__()
+        self.dropout_p = dropout_p
 
     def forward(self, x):
-        x = self.projection(x)
-        x = rearrange(x, 'b c t h w -> (b t) (h w) c')
-        return x
+        return self.drop_path(x, self.dropout_p, self.training)
+
+    def drop_path(self, x, dropout_p=0., training=False):
+        if dropout_p == 0. or not training:
+            return x
+        keep_prob = 1 - dropout_p
+        shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+        random_tensor = keep_prob + torch.rand(shape).type_as(x)
+        random_tensor.floor_()  # binarize
+        output = x.div(keep_prob) * random_tensor
+        return output
 
 
 class MultiheadAttentionWithPreNorm(nn.Module):
-
     def __init__(self, embed_dims, num_heads, attn_drop=0., proj_drop=0., norm_layer=nn.LayerNorm):
-        super(MultiheadAttentionWithPreNorm, self).__init__()
+        super().__init__()
         self.embed_dims = embed_dims
         self.num_heads = num_heads
         self.norm = norm_layer(embed_dims)
@@ -307,7 +226,6 @@ class TransformerContainer(nn.Module):
         self.layers = nn.ModuleList([])
         self.num_transformer_layers = num_transformer_layers
 
-        dpr = np.linspace(0, drop_path_rate, num_transformer_layers)
         for i in range(num_transformer_layers):
             self.layers.append(
                 BasicTransformerBlock(
@@ -369,20 +287,77 @@ class BasicTransformerBlock(nn.Module):
         return x
 
 
-class PoseLoss(nn.Module):
-    def __init__(self, device, beta=2):
-        super(PoseLoss, self).__init__()
+class PosLinear(nn.Module):
+    """Final linear layer that gives the position as result"""
 
-        self.beta = torch.Tensor([beta]).to(device)
+    def __init__(self, t: int, dim: int, outdim=3, dropout=0.0):
+        super(PosLinear, self).__init__()
+        self.fc1 = nn.Linear(dim, outdim, bias=True)
+        self.batch_norm = nn.BatchNorm1d(t)
+        self.dropout = nn.Dropout(dropout)
+        self.initialize_weights()
+
+    def forward(self, x):
+        x = self.batch_norm(x)
+        x = self.fc1(x)
+        x = self.dropout(x)
+        return x
+
+    def initialize_weights(self):
+        nn.init.trunc_normal_(self.fc1.weight.data)
+        if self.fc1.bias is not None:
+            nn.init.constant_(self.fc1.bias.data, 0)
+
+
+class OriLinear(nn.Module):
+    """Final linear layer that gives the orientation as quaternion"""
+
+    def __init__(self, t: int, dim: int, outdim=4, dropout=0.0):
+        super(OriLinear, self).__init__()
+        self.fc1 = nn.Linear(dim, outdim, bias=True)
+        self.batch_norm = nn.BatchNorm1d(t)
+        self.dropout = nn.Dropout(dropout)
+        self.initialize_weights()
+
+    def forward(self, x):
+        x = self.batch_norm(x)
+        x = self.fc1(x)
+        x = self.dropout(x)
+        return x
+
+    def initialize_weights(self):
+        nn.init.trunc_normal_(self.fc1.weight.data)
+        if self.fc1.bias is not None:
+            nn.init.constant_(self.fc1.bias.data, 0)
+
+
+class PoseLoss(nn.Module):
+    def __init__(self, device, lossf, sq=-6.25, sx=0.0, learn_beta=True):
+        super(PoseLoss, self).__init__()
+        self.learn_beta = learn_beta
+        self.sx = nn.Parameter(torch.Tensor([sx]).to(device), requires_grad=self.learn_beta)
+        self.sq = nn.Parameter(torch.Tensor([sq]).to(device), requires_grad=self.learn_beta)
         self.loss_print = None
-        self.loss = torch.nn.L1Loss()
+        # Loss function choice
+        if lossf == "smooth":
+            self.loss_fun = torch.nn.SmoothL1Loss(beta=0.1)
+        elif lossf == "huber":
+            self.loss_fun = torch.nn.HuberLoss(reduction="mean", delta=0.1)
+        elif lossf == "mse":
+            self.loss_fun = torch.nn.MSELoss()
+        else:
+            self.loss_fun = torch.nn.L1Loss()
 
     def forward(self, pred_x, pred_q, target_x, target_q):
-        loss_x = self.loss(pred_x, target_x)
-        loss_q = self.loss(pred_q, target_q)
+        loss_x = self.loss_fun(pred_x.float(), target_x.float())
+        loss_q = self.loss_fun(pred_q.float(), target_q.float())
 
-        loss = loss_x + self.beta * loss_q
+        loss = torch.exp(-self.sx) * loss_x \
+               + self.sx \
+               + torch.exp(-self.sq) * loss_q \
+               + self.sq
 
         self.loss_print = [loss.item(), loss_x.item(), loss_q.item()]
 
         return loss, loss_x.item(), loss_q.item()
+

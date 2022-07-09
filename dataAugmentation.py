@@ -6,6 +6,7 @@ class ImageAugmentation:
     def __init__(self):
         self.aug = iaa.Sequential([
             iaa.SomeOf((0, 5), [
+                iaa.Rotate((-10, 10)),
                 iaa.Sometimes(0.75,
                     iaa.OneOf([
                         iaa.GaussianBlur((0, 3.0)),  # blur images with a sigma between 0 and 3.0

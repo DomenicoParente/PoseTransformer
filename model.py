@@ -1,50 +1,8 @@
 import torch
+
 import modules
 from modules import *
-from einops import rearrange, repeat, reduce
-
-
-class PoseTransformer_v1(nn.Module):
-    """First implementation currently NOT used"""
-    def __init__(self, n_frames, height, width, patch_time, patch_height, patch_width, channels, dim, heads,
-                 mlp_dim, depth_l, dim_out, dropout=0.2, ldrop=0.0):
-        super().__init__()
-
-        # The number of video frames are considered the discrete time of the video
-        time = n_frames
-
-        assert time % patch_time == 0 and width % patch_width == 0 and height % patch_height == 0, 'Video dimensions must be divisible by the tubelet size.'
-        tubelet_dim = patch_time * patch_width * patch_height * channels
-        n_t = time // patch_time
-        n_w = width // patch_width
-        n_h = height // patch_height
-        self.tubelet_embedding = modules.TubeletEmbedding(patch_time, patch_width, patch_height, dim, tubelet_dim)
-        self.pos_embedding = nn.Parameter(torch.randn(1, 1, n_w * n_h, dim)).repeat(1, n_t, 1, 1)
-
-        self.transformer = modules.Transformer(dim, heads, mlp_dim, depth_l, dropout)
-        self.mlp_head = modules.MLPhead(dim * n_w * n_h, dim_out)
-        self.pos = modules.PosLinear(dim_out, ldrop)
-        self.ori = modules.OriLinear(dim_out, ldrop)
-        self.initialize_weights()
-
-    def forward(self, x):
-        x = self.tubelet_embedding(x)
-        x += self.pos_embedding
-        x = self.transformer(x)
-        x = self.mlp_head(x)
-        pos = self.pos(x)
-        ori = self.ori(x)
-        return pos, ori
-
-    def initialize_weights(self):
-        mod = self.modules()
-        # print("Modules: ", self.modules)
-        for m in mod:
-            if isinstance(m, nn.Linear):
-                nn.init.kaiming_uniform_(m.weight.data)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias.data, 0)
-
+from einops import rearrange, reduce, repeat
 
 class PoseTransformer(nn.Module):
     """Reference: https://github.com/mx-mark/VideoTransformer-pytorch"""
@@ -102,8 +60,14 @@ class PoseTransformer(nn.Module):
         self.drop_after_pos = nn.Dropout(p=dropout_p)
         self.drop_after_time = nn.Dropout(p=dropout_p)
 
-        self.pos = modules.PosLinear(dim_out, ldrop)
-        self.ori = modules.OriLinear(dim_out, ldrop)
+        self.pos = modules.PosLinear(dim=self.embed_dims, t=num_frames - 1, dropout=ldrop)
+        self.ori = modules.OriLinear(dim=self.embed_dims, t=num_frames - 1, dropout=ldrop)
+
+        # Transformer decoder
+        decoder_layer = nn.TransformerDecoderLayer(d_model=7,
+                                                   nhead=7)
+        self.decoder = nn.TransformerDecoder(decoder_layer=decoder_layer,
+                                             num_layers=self.num_transformer_layers)
 
         self.init_weights()
 
@@ -123,7 +87,7 @@ class PoseTransformer(nn.Module):
 
         return x, tokens, batch
 
-    def forward(self, x):
+    def forward(self, x, tgt):
         x, tokens, b = self.prepare_tokens(x)
         # fact encoder - CRNN style
         spatial_transformer, temporal_transformer, = *self.transformer_layers,
@@ -140,5 +104,10 @@ class PoseTransformer(nn.Module):
         x = x[:, 1:]
         pos = self.pos(x)
         ori = self.ori(x)
+        x = torch.cat((ori, pos), dim=2)
+        x = self.decoder(tgt.float(), x.float())
+        pos = x[:, :, 4:]
+        ori = x[:, :, :4]
         return pos, ori
+
 

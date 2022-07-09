@@ -1,14 +1,11 @@
 import os
+import time
 import numpy as np
 import torch
-import torch.optim as optim
 import torch.nn.functional as F
-from torch.optim.lr_scheduler import StepLR
-from torch.utils.data import DataLoader
-from torchvision import transforms
 from collections import OrderedDict
+import yaml
 import model
-from dataloader import RGBDDataset, RGBDDataset_v2, RGBDDataset_test
 import datetime
 from datetime import datetime
 from modules import PoseLoss
@@ -28,23 +25,28 @@ class Solver:
 
         # Setting model, loss function
         self.config = config
-        """
-        self.model = model.PoseTransformer_v1(self.config["n_frames"], self.config["height"], self.config["width"],
-                                           self.config["patch_t"], self.config["patch_h"], self.config["patch_w"],
-                                           self.config["channels"], self.config["dim"], self.config["n_heads"],
-                                           self.config["mlp_dim"], self.config["depth"], self.config["dim_out"],
-                                           self.config["last_dropout"])
-        """
+        self.model = model.PoseTransformer(num_frames=self.config["n_frames"],
+                                           height=self.config["height"],
+                                           width=self.config["width"],
+                                           patch_time=self.config["patch_t"],
+                                           patch_height=self.config["patch_h"],
+                                           patch_width=self.config["patch_w"],
+                                           channels=self.config["channels"],
+                                           dim_out=self.config["dim_out"],
+                                           ldrop=self.config["last_dropout"])
 
-        self.model = model.PoseTransformer(self.config["n_frames"], self.config["height"], self.config["width"],
-                                           self.config["patch_t"], self.config["patch_h"], self.config["patch_w"],
-                                           self.config["channels"], self.config["dim_out"], self.config["last_dropout"])
-
-        self.criterion = PoseLoss(self.device, self.config["beta"])
+        # Loss function selection
+        self.criterion = PoseLoss(device=self.device,
+                                  lossf=self.config["loss_function"],
+                                  learn_beta=self.config["learn_beta"],
+                                  sq=self.config["sq"])
 
         # Create name for the current trained model
         now = datetime.now()
-        self.model_name = "PT_model" + now.strftime("%m-%d-%H_%M")
+        if self.config["mode"] != "checkpoint":
+            self.model_name = "PT_model" + now.strftime("%m-%d-%H_%M")
+        else:
+            self.model_name = self.config["checkpoint_model"]
 
         # Load pretrained model
         if self.config["pretrain"] and self.config["mode"] == "train":
@@ -91,77 +93,29 @@ class Solver:
             pretrained_model = torch.load(model_path, map_location=torch.device('cpu'))
         self.model.load_state_dict(torch.load(model_path))
 
-    def load_dataset(self, dataset_name):
-        """Load the dataset and save files for training"""
-        if os.path.isfile(dataset_name):
-            os.remove(dataset_name)
-        print('Setup dataset')
-
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Resize((self.config["height"], self.config["width"])),
-            transforms.Normalize(self.config["data_mean"], self.config["data_std"])
-        ])
-        """
-        dataset = RGBDDataset(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
-                                self.config["frame_template"], self.config["label_template"],
-                                self.config["n_video"], self.config["f_per_segment"],
-                                self.config["data_augmentation"], transform)
-        """
-        dataset = RGBDDataset_v2(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
-                                 self.config["frame_template"], self.config["label_template"], self.config["n_video"],
-                                 self.config["f_per_segment"], self.config["data_augmentation"], transform)
-
-        training_dataset = DataLoader(dataset, batch_size=self.config["batch_size"], shuffle=False,
-                                      num_workers=self.config["n_workers"])
-        torch.save(training_dataset, dataset_name)
-        train_data = torch.load(dataset_name)
-
-        return train_data
-
-    def load_dataset_test(self, dataset_name):
-        """Load the dataset and save files for testing"""
-        if os.path.isfile(dataset_name):
-            os.remove(dataset_name)
-        print('Setup test dataset')
-
-        # Basic transformations for all frames uploaded
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Resize((self.config["height"], self.config["width"])),
-            transforms.Normalize(self.config["data_mean"], self.config["data_std"])
-        ])
-
-        dataset = RGBDDataset_test(self.config["dataset_path"], self.config["label_path"], self.config["n_segments"],
-                                   self.config["frame_template"], self.config["label_template"], self.config["n_video"],
-                                   self.config["f_per_segment"], self.config["test_scene"], transform)
-        test_dataset = DataLoader(dataset, batch_size=1, shuffle=False)
-
-        torch.save(test_dataset, dataset_name)
-        test_data = torch.load(dataset_name)
-
-        return test_data
-
-
     def train(self, train_data):
         print("Training starting")
         print("Model: ", self.model_name)
         train_model = self.model.to(self.device)
         start = 0
 
-        # Optimizer
-        optimizer = optim.SGD(train_model.parameters(), lr=self.config["l_rate"], momentum=self.config["momentum"],
-                              weight_decay=self.config["weight_decay"])
-        # Scheduler
-        scheduler = StepLR(optimizer, step_size=self.config["step_size"], gamma=self.config["gamma"])
+        # Optimizer selection
+        optimizer = utils.optimizer_selection(config=self.config,
+                                              train_model=train_model,
+                                              sx=self.criterion.sx,
+                                              sq=self.criterion.sq)
 
+        # Scheduler selection
+        scheduler = utils.scheduler_selection(config=self.config,
+                                              optimizer=optimizer)
+
+        trained_model_path = self.models_save_path + self.model_name + "/"
         if self.config["mode"] == "train":
             # Creates a directory for the trained models when it does not exist
             if not os.path.exists(self.models_save_path) and self.config["save"]:
                 os.makedirs(self.models_save_path)
 
             # Create a directory for the current trained model when it does not exist
-            trained_model_path = self.models_save_path + self.model_name + "/"
             if not os.path.exists(trained_model_path):
                 os.makedirs(trained_model_path)
 
@@ -173,7 +127,7 @@ class Solver:
 
         # it restarts the training from the epoch saved in the checkpoint
         if self.config["mode"] == "checkpoint":
-            print("Check point: ", self.config["checkpoint_to_load"])
+            print("Checkpoint: ", self.config["checkpoint_to_load"])
             model_path = self.models_save_path + self.config["checkpoint_model"] + "/"
             checkpoint = torch.load(model_path + "checkpoints/" + self.config["checkpoint_to_load"])
             self.model.load_state_dict(checkpoint['model_state_dict'])
@@ -183,6 +137,11 @@ class Solver:
                 summary_filepath = self.models_save_path + self.config["checkpoint_model"] + "/" + \
                                    self.config["checkpoint_model"] + "_summary.txt"
                 summary_file = open(summary_filepath, 'a')
+
+        # Save config file in model directory
+        config_file = trained_model_path + "config_file_" + self.model_name + ".yaml"
+        file = open(config_file, 'w')
+        yaml.dump(self.config, file, default_flow_style=False)
 
         # Write summary
         if start == 0:
@@ -198,10 +157,17 @@ class Solver:
                                    str(self.config["patch_t"]) + "]\n")
                 summary_file.write("\n Number of epochs: " + str(self.config["n_epochs"]))
                 summary_file.write("\n Initial learning rate: " + str(self.config["l_rate"]))
-                summary_file.write("\n Momentum: " + str(self.config["momentum"]))
-                summary_file.write("\n Step size: " + str(self.config["step_size"]))
+                if self.config["optimizer"] == "sgd":
+                    summary_file.write("\n Momentum: " + str(self.config["momentum"]))
+                if self.config["scheduler"] == "step":
+                    summary_file.write("\n Step size: " + str(self.config["step_size"]))
                 summary_file.write("\n Gamma: " + str(self.config["gamma"]))
-                summary_file.write("\n Beta: " + str(self.config["beta"]))
+                summary_file.write("\n Sq: " + str(self.config["sq"]))
+                summary_file.write("\n Number of videos used for training: " + str(self.config["n_video"]))
+                summary_file.write("\n Dataloader used: " + str(self.config["dataloader"]))
+                summary_file.write("\n Loss function used: " + str(self.config["loss_function"]))
+                summary_file.write("\n Optimizer used: " + str(self.config["optimizer"]))
+                summary_file.write("\n Scheduler used: " + str(self.config["scheduler"]))
                 if self.config["pretrain"]:
                     summary_file.write("\n The model is pretrained\n")
                 else:
@@ -219,6 +185,9 @@ class Solver:
         pos_loss_training = []
         ori_loss_training = []
 
+        start_time = time.time()
+        temp = start_time
+
         # Train NN for N epochs
         for epoch in range(start, self.config["n_epochs"]):
             train_model.train()
@@ -233,13 +202,13 @@ class Solver:
                 optimizer.zero_grad()
 
                 # Passing data to model
-                pos_out, ori_out = train_model(data)
+                target_input = target[:, :-1, :]
+                pos_out, ori_out = train_model(data, target_input)
                 # print('Size output: ', pos_out.size(), ori_out.size())
                 # print('Output:', pos_out, ori_out)
 
-                ori_true = target[:, :, :4]
-                pos_true = target[:, :, 4:]
-
+                ori_true = target[:, 1:, :4]
+                pos_true = target[:, 1:, 4:]
                 ori_out = F.normalize(ori_out, p=2, dim=2)
                 ori_true = F.normalize(ori_true, p=2, dim=2)
 
@@ -260,12 +229,13 @@ class Solver:
             pos_loss_training.append(loss_pos)
             ori_loss_training.append(loss_ori)
             print('Number of epoch: ', epoch + 1)
+            print('Time: ', (time.time() - start)/(1000*60))
             print('Training Total Loss: {:.6f} \t Training Position Loss: {:.6f} \t Training Orientation Loss: {:.6f}'.format(
                     tot_loss/(len(train_data)), loss_pos, loss_ori))
 
             if self.config["checkpoint"] and epoch % self.config["ep_checkpoint"] == 0 and epoch != 0:
                 checkpoint_name = self.model_name + "_ep_" + str(epoch+1) + "_checkpoint.pt"
-                checkpoint_path = checkpoint_model_path + checkpoint_name
+                checkpoint_path = self.models_save_path + self.model_name + "/" + "checkpoints/" + checkpoint_name
                 torch.save({
                     'epoch': epoch,
                     'model_state_dict': train_model.state_dict(),
@@ -276,6 +246,7 @@ class Solver:
             if self.config["summary"]:
                 n_ep = epoch + 1
                 summary_file.write("Epoch: " + str(n_ep) + "\n")
+                summary_file.write("Time:: " + str((time.time() - start)/(1000*60)) + "\n")
                 summary_file.write("Loss: " + str(loss_t) + "\n")
                 summary_file.write("Position Loss: " + str(loss_pos) + "\n")
                 summary_file.write("Orientation Loss: " + str(loss_ori) + "\n" + "\n")
@@ -289,7 +260,7 @@ class Solver:
             summary_file.write("Overall average position loss: " + str(np.mean(pos_loss_training)) + "\n")
             summary_file.write("Overall average orientation loss: " + str(np.mean(ori_loss_training)) + "\n")
 
-        if self.config["loss_plot"]:
+        if self.config["loss_plot"] and self.config["mode"] == "train":
             utils.loss_plot(trained_model_path, self.model_name, self.config["n_epochs"], total_loss_training)
 
         # It saves the trained model
@@ -306,17 +277,31 @@ class Solver:
         estimated_pose = []
         pos_loss_testing = []
         ori_loss_testing = []
+
+        # Create a directory for the current test
+        test_path = self.models_save_path + self.config["trained_model"] + "/test_scene_" + str(self.config["test_scene"]) + "/"
+        if not os.path.exists(test_path):
+            os.makedirs(test_path)
+
+        eval_pos_out = torch.zeros((self.config["batch_size"], self.config["n_segments"], 3)).to(self.device)
+        eval_ori_out = torch.zeros((self.config["batch_size"], self.config["n_segments"], 4)).to(self.device)
+        for i in range(self.config["batch_size"]):
+          for j in range(self.config["n_segments"]):
+            eval_ori_out[i,j,3]=1
+
         with torch.no_grad():
             for data, target in test_data:
                 data, target = data.to(self.device), target.to(self.device)
-                pos_out, ori_out = eval_model(data)
+                target_input = torch.cat((eval_ori_out, eval_pos_out),dim=2)
+                pos_out, ori_out = eval_model(data, target_input)
                 # print('Size output: ', pos_out.size(), ori_out.size())
                 # print('Output:', pos_out, ori_out)
+                eval_pos_out = pos_out
+                eval_ori_out = ori_out
                 pos_out = pos_out.squeeze(0).detach().cpu().numpy()
-                ori_out = F.normalize(ori_out, p=2, dim=2)
-                ori_out = ori_out.squeeze(0).detach().cpu().numpy()
+                ori_out = F.normalize(ori_out, p=2, dim=2).squeeze(0).detach().cpu().numpy()
 
-                ori_true = F.normalize(target[:, :, :4], p=2, dim=2).squeeze(0).detach().cpu().numpy()
+                ori_true = target[:, :, :4].squeeze(0).detach().cpu().numpy()
                 pos_true = target[:, :, 4:].squeeze(0).detach().cpu().numpy()
 
                 c_ori_true = np.zeros((ori_true.shape[0], 3))
@@ -350,11 +335,11 @@ class Solver:
             summary_file.write("Overall test orientation error: " + "\n" +
                                'Roll: ' + str(ori_mean_loss[0]) +
                                ' Pitch: ' + str(ori_mean_loss[1]) +
-                               ' Yaw: ' + str(ori_mean_loss[2]))
+                               ' Yaw: ' + str(ori_mean_loss[2]) + "\n")
 
         if self.config["cvs_file"]:
-            path_target = self.models_save_path + self.config["trained_model"] + "/" + self.config["trained_model"] + '_pose_target.csv'
-            path_estim = self.models_save_path + self.config["trained_model"] + "/" + self.config["trained_model"] + '_pose_estimation.cvs'
+            path_target = test_path + self.config["trained_model"] + '_pose_target.csv'
+            path_estim = test_path + self.config["trained_model"] + '_pose_estimation.csv'
             f1 = open(path_target, 'w')
             f2 = open(path_estim, 'w')
             writer1 = csv.writer(f1)
@@ -362,29 +347,25 @@ class Solver:
             writer1.writerows(target_pose)
             writer2.writerows(estimated_pose)
 
-        if self.config["trajectory_plot"]:
+        if self.config["plot"]:
             target_pose = np.array(target_pose)
             estimated_pose = np.array(estimated_pose)
-            nptarget_path = self.models_save_path + self.config["trained_model"] + "/" + self.config[
-                "trained_model"] + '_tar.npy'
-            npestimated_path = self.models_save_path + self.config["trained_model"] + "/" + self.config[
-                "trained_model"] + '_est.npy'
+            nptarget_path = test_path + self.config["trained_model"] + '_tar.npy'
+            npestimated_path = test_path + self.config["trained_model"] + '_est.npy'
             np.save(nptarget_path, target_pose)
             np.save(npestimated_path, estimated_pose)
 
             # Plot trajectory of using estimated poses and correct poses
-            trajectory_plot_path = self.models_save_path + self.config["trained_model"] + "/" + self.config["trained_model"] + "_trajectory_plot"
+            trajectory_plot_path = test_path + self.config["trained_model"] + "_trajectory_plot"
             utils.trajectory_plot(trajectory_plot_path, nptarget_path, npestimated_path)
 
             #Plot orientation
-            orientation_plot_path = self.models_save_path + self.config["trained_model"] + "/" + self.config["trained_model"] + "_orientation_plot"
+            orientation_plot_path = test_path + self.config["trained_model"] + "_orientation_plot"
             utils.orientation_plot(orientation_plot_path, nptarget_path, npestimated_path)
 
             #Plot errors graph
-            pos_err_plot_path = self.models_save_path + self.config["trained_model"] + "/" + self.config[
-                "trained_model"] + "_pos_err_plot"
+            pos_err_plot_path = test_path + self.config["trained_model"] + "_pos_err_plot"
             utils.position_err_plot(pos_err_plot_path, nptarget_path, npestimated_path)
 
-            ori_err_plot_path = self.models_save_path + self.config["trained_model"] + "/" + self.config[
-                "trained_model"] + "_ori_err_plot"
+            ori_err_plot_path = test_path + self.config["trained_model"] + "_ori_err_plot"
             utils.orientation_err_plot(ori_err_plot_path, nptarget_path, npestimated_path)
