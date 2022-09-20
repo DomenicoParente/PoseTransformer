@@ -1,14 +1,16 @@
 import torch
-
 import modules
 from modules import *
 from einops import rearrange, reduce, repeat
 
+
 class PoseTransformer(nn.Module):
     """Reference: https://github.com/mx-mark/VideoTransformer-pytorch"""
     """Model with Divided Space Time Transformer Encoder"""
+
     def __init__(self, num_frames, height, width, patch_time, patch_height, patch_width, channels, dim_out, ldrop=0.0,
-                 embed_dims=768, num_heads=12, num_transformer_layers=12, dropout_p=0.0, norm_layer=nn.LayerNorm, **kwargs):
+                 embed_dims=768, num_heads=12, num_transformer_layers=12, dropout_p=0.0, norm_layer=nn.LayerNorm,
+                 **kwargs):
         super().__init__()
         num_frames = num_frames // patch_time
         self.num_frames = num_frames
@@ -63,12 +65,6 @@ class PoseTransformer(nn.Module):
         self.pos = modules.PosLinear(dim=self.embed_dims, t=num_frames - 1, dropout=ldrop)
         self.ori = modules.OriLinear(dim=self.embed_dims, t=num_frames - 1, dropout=ldrop)
 
-        # Transformer decoder
-        decoder_layer = nn.TransformerDecoderLayer(d_model=7,
-                                                   nhead=7)
-        self.decoder = nn.TransformerDecoder(decoder_layer=decoder_layer,
-                                             num_layers=self.num_transformer_layers)
-
         self.init_weights()
 
     def init_weights(self):
@@ -87,7 +83,7 @@ class PoseTransformer(nn.Module):
 
         return x, tokens, batch
 
-    def forward(self, x, tgt):
+    def forward(self, x):
         x, tokens, b = self.prepare_tokens(x)
         # fact encoder - CRNN style
         spatial_transformer, temporal_transformer, = *self.transformer_layers,
@@ -104,10 +100,4 @@ class PoseTransformer(nn.Module):
         x = x[:, 1:]
         pos = self.pos(x)
         ori = self.ori(x)
-        x = torch.cat((ori, pos), dim=2)
-        x = self.decoder(tgt.float(), x.float())
-        pos = x[:, :, 4:]
-        ori = x[:, :, :4]
         return pos, ori
-
-

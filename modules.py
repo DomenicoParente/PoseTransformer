@@ -349,6 +349,7 @@ class PoseLoss(nn.Module):
             self.loss_fun = torch.nn.L1Loss()
 
     def forward(self, pred_x, pred_q, target_x, target_q):
+        pred_q = F.normalize(pred_q)
         loss_x = self.loss_fun(pred_x.float(), target_x.float())
         loss_q = self.loss_fun(pred_q.float(), target_q.float())
 

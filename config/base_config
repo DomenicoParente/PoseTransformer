@@ -1,24 +1,25 @@
 # BASIC SETTINGS
 mode: "train"
+dataset: "rgbd_wu"
 dataset_path: "dataset/rgbd-scenes-v2/imgs/"
 label_path: "dataset/rgbd-scenes-v2/pc/"
-n_segments: 10
-f_per_segment: 3
+n_segments: 1
+f_per_segment: 2
 frame_template: "{:05d}-color.png"
 label_template: "{:02d}.pose"
-data_augmentation: True
+data_augmentation: False
 dataloader: "v2"
-n_video: 3
+n_video: 1
 dataset_name: "training_dataset"
 data_init: False
 data_mean: 0.2365
 data_std: 0.1975
 
 # DATA SETTINGS
-n_frames: 30
+n_frames: 2
 width: 224
 height: 224
-patch_t: 3
+patch_t: 2
 patch_w: 16
 patch_h: 16
 channels: 3
@@ -34,9 +35,9 @@ dropout: 0.1
 last_dropout: 0.05
 
 # TRAINING SETTINGS
-optimizer: "adam"
+optimizer: "sgd"
 scheduler: "step"
-pretrain: False
+pretrain: false
 pretrained_path: "pretrained_models/"
 pretrained_model: "vivit_model.pth"
 batch_size: 1
@@ -47,7 +48,7 @@ l_rate: 0.001
 momentum: 0.75
 gamma: 0.8
 weight_decay: 0.005
-loss_function: "huber"
+loss_function: "linear"
 learn_beta: True
 sq: -3.0
 save: True
@@ -66,7 +67,7 @@ trained: True
 cvs_file: True
 plot: True
 trained_path: "trained_models/"
-trained_model: "PT_model05-25-23_38"
+trained_model: "PT_model09-11-15_03"
 test_dataset_name: "test_dataset"
 test_scene: 12
 
