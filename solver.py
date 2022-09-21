@@ -286,10 +286,14 @@ class Solver:
 
                 pos_out = pos_out.squeeze(0).detach().cpu().numpy()
                 ori_out = ori_out.squeeze(0).detach().cpu().numpy()
-                estimated_poses.append(np.concatenate((pos_out, ori_out), axis=1).squeeze(0))
 
+                poses_out_batch = np.concatenate((pos_out.squeeze(1), ori_out.squeeze(1)), axis=1)
+                for i in range(poses_out_batch.shape[0]):
+                    estimated_poses.append(poses_out_batch[i, :])
                 pose_true = target.squeeze(0).detach().cpu().numpy()
-                target_poses.append(pose_true.squeeze(0))
+                poses_true_batch = pose_true.squeeze(1)
+                for i in range(poses_true_batch.shape[0]):
+                    target_poses.append(poses_true_batch[i, :])
 
         estimated_poses = utils.rel_to_glob(estimated_poses)
         target_poses = utils.rel_to_glob(target_poses)

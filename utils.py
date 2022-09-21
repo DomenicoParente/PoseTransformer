@@ -247,13 +247,12 @@ def rel_to_glob(data):
         all_poses: list of all global 7-values poses.
     """
     data = np.array(data)
-    print("shape: ", data.shape)
     data_size = data.shape[0]
     all_poses = np.zeros((data_size + 1, 7))
     temp = [0, 0, 0, 0, 0, 0, 1]
     all_poses[0, :] = temp
     pose = np.matrix(np.eye(4))
-    for i in range(0, data_size):
+    for i in range(data_size):
         homcoord_mat = homcoord_vec_to_mat(pose_to_homcoord(data[i, :]))
         pose = pose * homcoord_mat
         pose_line = np.array(pose[0:3, :]).reshape(1, 12)
