@@ -1,0 +1,73 @@
+# BASIC SETTINGS
+mode: "train"
+dataset: "7_scenes"
+dataset_path: "dataset/7-scenes/"
+label_path: "dataset/7-scenes/"
+n_segments: 1
+f_per_segment: 2
+frame_template: "frame-{:06d}.color.png"
+label_template: "frame-{:06d}.pose.txt"
+data_augmentation: False
+dataloader: "v2"
+n_video: 1
+dataset_name: "training_dataset"
+data_init: False
+data_mean: 0.2365
+data_std: 0.1975
+
+# DATA SETTINGS
+n_frames: 2
+width: 224
+height: 224
+patch_t: 2
+patch_w: 16
+patch_h: 16
+channels: 3
+
+# NN PARAMETERS
+dim: 1024
+n_heads: 16
+mlp_dim: 1024
+dim_out: 1024
+depth: 3
+layers: 12
+dropout: 0.1
+last_dropout: 0.05
+
+# TRAINING SETTINGS
+optimizer: "sgd"
+scheduler: "step"
+pretrain: false
+pretrained_path: "pretrained_models/"
+pretrained_model: "vivit_model.pth"
+batch_size: 1
+n_workers: 0
+n_epochs: 100
+step_size: 5
+l_rate: 0.001
+momentum: 0.75
+gamma: 0.8
+weight_decay: 0.005
+loss_function: "linear"
+learn_beta: True
+sq: -3.0
+save: True
+summary: True
+loss_plot: True
+log_interval: 50
+
+# CHECKPOINTS SETTINGS
+checkpoint: False
+ep_checkpoint: 1
+checkpoint_model: "PT_model05-23-22_30"
+checkpoint_to_load: "PT_model05-17-23_12_ep_2_checkpoint.pt"
+
+# TESTING SETTINGS
+trained: True
+cvs_file: True
+plot: True
+trained_path: "trained_models/"
+trained_model: "PT_model09-11-15_03"
+test_dataset_name: "test_dataset"
+test_scene: 12
+
