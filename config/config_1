@@ -70,4 +70,5 @@ trained_path: "trained_models/"
 trained_model: "PT_model09-11-15_03"
 test_dataset_name: "test_dataset"
 test_scene: 12
+test_seq: 1
 
