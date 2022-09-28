@@ -87,10 +87,6 @@ class Solver:
         """Load previous trained models for testing"""
         model_path = self.config["trained_path"] + self.config["trained_model"] + "/" + self.config["trained_model"] + ".pth"
         print("Setup trained model")
-        if torch.cuda.is_available():
-            pretrained_model = torch.load(model_path, map_location=torch.device('cpu'))
-        else:
-            pretrained_model = torch.load(model_path, map_location=torch.device('cpu'))
         self.model.load_state_dict(torch.load(model_path))
 
     def train(self, train_data):
@@ -185,32 +181,28 @@ class Solver:
         pos_loss_training = []
         ori_loss_training = []
 
-        start_time = time.time()
-        temp = start_time
-
         # Train NN for N epochs
         for epoch in range(start, self.config["n_epochs"]):
             train_model.train()
             tot_loss = 0
+            start_time = time.time()
+
             for batch_idx, (data, target) in enumerate(train_data):
                 data = data.to(self.device)
                 target = target.to(self.device)
-                #print("Target:", target)
+                # print("Target:", target)
                 # print('Size target: ', target.size())
 
                 # Set to zero the parameter gradient
                 optimizer.zero_grad()
 
-                # Passing data to model
-                target_input = target[:, :-1, :]
-                pos_out, ori_out = train_model(data, target_input)
+                pos_out, ori_out = train_model(data)
                 # print('Size output: ', pos_out.size(), ori_out.size())
                 # print('Output:', pos_out, ori_out)
 
-                ori_true = target[:, 1:, :4]
-                pos_true = target[:, 1:, 4:]
-                ori_out = F.normalize(ori_out, p=2, dim=2)
-                ori_true = F.normalize(ori_true, p=2, dim=2)
+                # 7-values pose: position + orientation
+                pos_true = target[:, :, :3]
+                ori_true = target[:, :, 3:]
 
                 loss, _, _ = self.criterion(pos_out, ori_out, pos_true, ori_true)
                 loss_t = self.criterion.loss_print[0]
@@ -228,8 +220,10 @@ class Solver:
             total_loss_training.append(tot_loss/(len(train_data)))
             pos_loss_training.append(loss_pos)
             ori_loss_training.append(loss_ori)
-            print('Number of epoch: ', epoch + 1)
-            print('Time: ', (time.time() - start)/(1000*60))
+            print('Epoch: ', epoch + 1)
+            time_min = (time.time() - start_time) // 60
+            time_s =  (time.time() - start_time) % 60
+            print('Time: ' + str(time_min) + " min  " + str(time_s) + " s" )
             print('Training Total Loss: {:.6f} \t Training Position Loss: {:.6f} \t Training Orientation Loss: {:.6f}'.format(
                     tot_loss/(len(train_data)), loss_pos, loss_ori))
 
@@ -246,7 +240,7 @@ class Solver:
             if self.config["summary"]:
                 n_ep = epoch + 1
                 summary_file.write("Epoch: " + str(n_ep) + "\n")
-                summary_file.write("Time:: " + str((time.time() - start)/(1000*60)) + "\n")
+                summary_file.write("Time: " + str(time_min) + " min  " + str(time_s) + " s"  + "\n")
                 summary_file.write("Loss: " + str(loss_t) + "\n")
                 summary_file.write("Position Loss: " + str(loss_pos) + "\n")
                 summary_file.write("Orientation Loss: " + str(loss_ori) + "\n" + "\n")
@@ -273,8 +267,10 @@ class Solver:
         print("Starting Test")
         eval_model = self.model.to(self.device)
         eval_model.eval()
-        target_pose = []
-        estimated_pose = []
+        target_poses = []
+        estimated_poses = []
+        eul_target_poses = []
+        eul_estimated_poses = []
         pos_loss_testing = []
         ori_loss_testing = []
 
@@ -283,45 +279,45 @@ class Solver:
         if not os.path.exists(test_path):
             os.makedirs(test_path)
 
-        eval_pos_out = torch.zeros((self.config["batch_size"], self.config["n_segments"], 3)).to(self.device)
-        eval_ori_out = torch.zeros((self.config["batch_size"], self.config["n_segments"], 4)).to(self.device)
-        for i in range(self.config["batch_size"]):
-          for j in range(self.config["n_segments"]):
-            eval_ori_out[i,j,3]=1
-
         with torch.no_grad():
             for data, target in test_data:
                 data, target = data.to(self.device), target.to(self.device)
-                target_input = torch.cat((eval_ori_out, eval_pos_out),dim=2)
-                pos_out, ori_out = eval_model(data, target_input)
+                pos_out, ori_out = eval_model(data)
                 # print('Size output: ', pos_out.size(), ori_out.size())
                 # print('Output:', pos_out, ori_out)
-                eval_pos_out = pos_out
-                eval_ori_out = ori_out
+
                 pos_out = pos_out.squeeze(0).detach().cpu().numpy()
-                ori_out = F.normalize(ori_out, p=2, dim=2).squeeze(0).detach().cpu().numpy()
+                ori_out = ori_out.squeeze(0).detach().cpu().numpy()
 
-                ori_true = target[:, :, :4].squeeze(0).detach().cpu().numpy()
-                pos_true = target[:, :, 4:].squeeze(0).detach().cpu().numpy()
+                poses_out_batch = np.concatenate((pos_out.squeeze(1), ori_out.squeeze(1)), axis=1)
+                for i in range(poses_out_batch.shape[0]):
+                    estimated_poses.append(poses_out_batch[i, :])
+                pose_true = target.squeeze(0).detach().cpu().numpy()
+                poses_true_batch = pose_true.squeeze(1)
+                for i in range(poses_true_batch.shape[0]):
+                    target_poses.append(poses_true_batch[i, :])
 
-                c_ori_true = np.zeros((ori_true.shape[0], 3))
-                c_ori_out = np.zeros((ori_out.shape[0], 3))
-                for c, q_true in enumerate(ori_true):
-                    c_ori_true[c] = utils.quat_to_euler(q_true)
-                for c, q_out in enumerate(ori_out):
-                    c_ori_out[c] = utils.quat_to_euler(q_out)
+        estimated_poses = utils.rel_to_glob(estimated_poses)
+        target_poses = utils.rel_to_glob(target_poses)
 
-                for i in range(pos_true.shape[0]):
-                    loss_pos = utils.cal_dist(pos_out[i], pos_true[i])
-                    pos_loss_testing.append(loss_pos)
+        c_ori_true = np.zeros((target_poses.shape[0], 3))
+        c_ori_out = np.zeros((estimated_poses.shape[0], 3))
+        for c, q_true in enumerate(target_poses):
+            c_ori_true[c] = utils.quat_to_euler(q_true[3:])
+        for c, q_out in enumerate(estimated_poses):
+            c_ori_out[c] = utils.quat_to_euler(q_out[3:])
 
-                for i in range(c_ori_true.shape[0]):
-                    loss_ori = utils.cal_ori_err(c_ori_out[i], c_ori_true[i])
-                    ori_loss_testing.append(loss_ori)
+        for i in range(target_poses.shape[0]):
+            loss_pos = utils.cal_dist(estimated_poses[i][:3], target_poses[i][:3])
+            pos_loss_testing.append(loss_pos)
 
-                for i in range(pos_true.shape[0]):
-                    target_pose.append(np.hstack((pos_true[i], c_ori_true[i])))
-                    estimated_pose.append(np.hstack((pos_out[i], c_ori_out[i])))
+        for i in range(c_ori_true.shape[0]):
+            loss_ori = utils.cal_ori_err(c_ori_out[i], c_ori_true[i])
+            ori_loss_testing.append(loss_ori)
+
+        for i in range(target_poses.shape[0]):
+            eul_target_poses.append(np.hstack((target_poses[i][:3], c_ori_true[i])))
+            eul_estimated_poses.append(np.hstack((estimated_poses[i][:3], c_ori_out[i])))
 
         ori_loss_testing = np.array(ori_loss_testing)
         ori_mean_loss = np.mean(ori_loss_testing, 0)
@@ -344,12 +340,12 @@ class Solver:
             f2 = open(path_estim, 'w')
             writer1 = csv.writer(f1)
             writer2 = csv.writer(f2)
-            writer1.writerows(target_pose)
-            writer2.writerows(estimated_pose)
+            writer1.writerows(target_poses)
+            writer2.writerows(estimated_poses)
 
         if self.config["plot"]:
-            target_pose = np.array(target_pose)
-            estimated_pose = np.array(estimated_pose)
+            target_pose = np.array(target_poses)
+            estimated_pose = np.array(estimated_poses)
             nptarget_path = test_path + self.config["trained_model"] + '_tar.npy'
             npestimated_path = test_path + self.config["trained_model"] + '_est.npy'
             np.save(nptarget_path, target_pose)

@@ -3,7 +3,7 @@ import yaml
 import os
 from torch.utils.data import DataLoader
 import dataset_utils
-from dataloader import RGBDDataset, RGBDDataset_v2
+from dataloader_rgbdwu import RGBDDataset_v2
 from solver import Solver
 
 CONFIG_PATH = "config/"
@@ -19,8 +19,8 @@ def config_load(config_filename):
 def get_mean_and_std_dataset(config):
     channels_sum, channels_squared_sum, num_batches = 0, 0, 0
     dataset = RGBDDataset_v2(config["dataset_path"], config["label_path"], config["n_segments"],
-                          config["frame_template"], config["label_template"], config["n_video"],
-                          config["f_per_segment"])
+                             config["frame_template"], config["label_template"], config["n_video"],
+                             config["f_per_segment"])
     dataloader = DataLoader(dataset, batch_size=config["batch_size"], shuffle=False)
     for data, _ in dataloader:
         # Mean over batch, height and width, but not over the channels
@@ -62,7 +62,7 @@ def main():
         solver.train(data)
     elif config["mode"] == "test":
         # Load dataset for testing
-        data = dataset_utils.load_dataset_test(config)
+        data = dataset_utils.load_dataset(config)
         # Test the model
         solver.test(data)
     elif config["mode"] == "checkpoint":
@@ -71,8 +71,7 @@ def main():
         # Returns to the point the training stopped
         solver.train(data)
     else:
-        print("ERROR. Mode not present")
-        return
+        raise Exception("ERROR. Mode not present")
 
 
 if __name__ == '__main__':
